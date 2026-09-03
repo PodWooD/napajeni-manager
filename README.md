@@ -33,14 +33,27 @@ lokálně i přes vzdálenou plochu, a během vteřiny je zase v plné síle.
 
 ## Instalace
 
-Stáhněte si obsah repozitáře do libovolné složky, například `C:\Program Files\NapajeniManager`
-nebo `%LOCALAPPDATA%\NapajeniManager`, a spusťte `NapajeniManager.exe`.
+Stáhněte si `NapajeniManager-1.0-setup.exe` ze [sekce Releases](https://github.com/PodWooD/napajeni-manager/releases)
+a spusťte ho. Instalace **nevyžaduje účet správce** — program se nainstaluje do
+`%LOCALAPPDATA%\Programs\NapajeniManager`.
 
-Sestavení ze zdrojáků — stačí dvojklik na `build.cmd`. Není potřeba Visual Studio ani SDK,
+Odinstalace probíhá běžnou cestou přes `Nastavení → Aplikace`. Kromě souborů
+odstraní i všechny naplánované úlohy, které program vytvořil.
+
+### Sestavení ze zdrojáků
+
+Aplikaci přeloží dvojklik na `build.cmd`. Není potřeba Visual Studio ani SDK,
 kompilátor je součástí Windows:
 
 ```
 build.cmd
+```
+
+Instalátor se sestaví pomocí [Inno Setup 6](https://jrsoftware.org/isinfo.php);
+výsledek se objeví ve složce `build`:
+
+```
+ISCC.exe installer.iss
 ```
 
 ## Použití
@@ -109,6 +122,7 @@ Aplikace sama nic nehlídá a na pozadí neběží. Je to jen nastavovací okno,
 | `zmer-vykon.ps1` | Změří dopad stropu výkonu a doporučí hodnotu |
 | `lg-tv.ps1` | Ovládání televize LG přes SSAP (`wss://<ip>:3001`) |
 | `config.ini` | Nastavení. Vytvoří si ho aplikace, do repozitáře nepatří. |
+| `installer.iss` | Předpis instalátoru pro Inno Setup |
 
 Úlohy se jmenují `NapajeniManager-*`. Přepnutí při zamknutí a odemknutí využívá
 `MSFT_TaskSessionStateChangeTrigger` (stav 7 = zamknutí, 8 = odemknutí).
