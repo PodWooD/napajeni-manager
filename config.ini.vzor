@@ -1,0 +1,53 @@
+# Napájení Manager — vzorové nastavení
+#
+# Tento soubor je jen ukázka. Aplikace si vytvoří vlastní config.ini
+# při prvním stisku „Uložit a nastavit úlohy“. Ručně ho upravovat nemusíte.
+# Pokud to přesto uděláte, změny se projeví až po dalším uložení v aplikaci.
+
+# --- Schémata napájení (GUID z `powercfg /list`) ---
+PlanBezny=381b4222-f694-41f0-9685-ff5bb260df2e
+PlanUspora=a1841308-3541-4fab-bc81-f71556f20b4a
+
+# --- Strop výkonu procesoru v úsporném režimu (%) ---
+# Nastavuje se tlačítkem „Změřit a nastavit automaticky“.
+MaxStavProcesoru=50
+
+# --- Chování ---
+Odpocet=60          # sekund ve varovném okně, než se režim přepne
+PrahCPU=20          # pod kolika % vytížení CPU se počítač považuje za nečinný
+PrahGPU=20          # totéž pro grafiku (vyžaduje nvidia-smi)
+ZakazatSpanek=1     # 1 = zakázat uspávání a hibernaci v obou schématech
+
+# --- Noční přepnutí ve všední dny ---
+Tyden_Povoleno=1
+Tyden_Cas=00:00
+Tyden_Dny=Monday,Tuesday,Wednesday,Thursday,Friday
+Tyden_KolKlidu=3    # kolikrát po sobě musí být klid, než se přepne
+Tyden_IntervalS=300 # jak často se klid kontroluje (sekundy)
+Tyden_VypnoutTV=1
+Tyden_Zamknout=1
+
+# --- Noční přepnutí o víkendu ---
+Vikend_Povoleno=1
+Vikend_Cas=02:00
+Vikend_Dny=Saturday,Sunday
+Vikend_KolKlidu=3
+Vikend_IntervalS=300
+Vikend_VypnoutTV=1
+Vikend_Zamknout=1
+
+# --- Přepnutí při zamknutí počítače ---
+Zamknuti_Povoleno=1
+Zamknuti_KolKlidu=2
+Zamknuti_IntervalS=180
+Zamknuti_VypnoutTV=1
+
+# --- Návrat do běžného režimu při odemknutí ---
+Odemknuti_Povoleno=1
+
+# --- Televize LG (webOS) ---
+# TV_IP najde tlačítko „Vyhledat“ v aplikaci. Párovací klíč se ukládá
+# zvlášť do lg-tv-key.txt a do repozitáře nepatří.
+TV_Povoleno=0
+TV_IP=
+TV_Port=3001

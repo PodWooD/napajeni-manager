@@ -1,0 +1,11 @@
+# Osobní nastavení a spárování — nikdy necommitovat
+config.ini
+lg-tv-key.txt
+
+# Protokoly
+*.log
+
+# Sestavené binárky
+*.exe
+*.pdb
+build/
