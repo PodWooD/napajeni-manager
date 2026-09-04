@@ -2,6 +2,10 @@
 REM Sestaveni Napajeni Manageru. Staci .NET Framework 4.0, ktery je
 REM soucasti Windows - zadne SDK ani Visual Studio neni potreba.
 
+REM Prepnout se do slozky skriptu - jinak by se pri spusteni odjinud
+REM nebo z jineho disku nenasly zdrojaky.
+cd /d "%~dp0"
+
 set CSC=%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 if not exist "%CSC%" (
     echo Nenalezen kompilator: %CSC%
