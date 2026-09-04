@@ -9,3 +9,6 @@ lg-tv-key.txt
 *.exe
 *.pdb
 build/
+
+# Externí posudky a poznámky — do repozitáře nepatří
+analyza-*.md
