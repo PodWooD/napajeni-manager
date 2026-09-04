@@ -33,7 +33,7 @@ lokálně i přes vzdálenou plochu, a během vteřiny je zase v plné síle.
 
 ## Instalace
 
-Stáhněte si `NapajeniManager-1.0-setup.exe` ze [sekce Releases](https://github.com/PodWooD/napajeni-manager/releases)
+Stáhněte si `NapajeniManager-1.1-setup.exe` ze [sekce Releases](https://github.com/PodWooD/napajeni-manager/releases)
 a spusťte ho. Instalace **nevyžaduje účet správce** — program se nainstaluje do
 `%LOCALAPPDATA%\Programs\NapajeniManager`.
 
