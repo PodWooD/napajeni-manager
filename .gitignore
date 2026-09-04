@@ -11,4 +11,7 @@ lg-tv-key.txt
 build/
 
 # Externí posudky a poznámky — do repozitáře nepatří
-analyza-*.md
+*analyza*.md
+*analyza*.txt
+*analysis*.md
+*posudek*.md
