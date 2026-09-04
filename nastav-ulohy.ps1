@@ -54,7 +54,7 @@ function Vytvor($nazev, $trigger, $argy, $popis, $limitH) {
 function TriggerRelace($stateChange) {
     $t = New-CimInstance -CimClass (Get-CimClass -ClassName MSFT_TaskSessionStateChangeTrigger `
          -Namespace Root/Microsoft/Windows/TaskScheduler) -ClientOnly
-    $t.StateChange = $stateChange     # 7 = zamknuti, 8 = odemknuti
+    $t.StateChange = $stateChange     # 3 = vzdalene pripojeni, 7 = zamknuti, 8 = odemknuti
     $t.UserId      = $uzivatel
     $t.Enabled     = $true
     return $t
@@ -94,8 +94,12 @@ if (CB 'Zamknuti_Povoleno') {
 
 # ---------- po odemknuti ----------
 if (CB 'Odemknuti_Povoleno') {
-    Vytvor "${predpona}Bezny-Odemknuti" (TriggerRelace 8) `
-        '-Akce Bezny -Rezim Odemknuti' 'Navrat do bezneho rezimu po odemknuti' 1
+    # Osmicka sama nestaci. Kdyz se klient RDP pripoji s predanymi prihlasovacimi
+    # udaji, relace se obnovi bez zamykaci obrazovky a udalost odemknuti neprijde.
+    # Trojka (vzdalene pripojeni) tenhle pripad pokryje. Kdyz prijdou obe,
+    # druhy beh nic nedela - Prepni() pozna, ze cilovy plan uz je aktivni.
+    Vytvor "${predpona}Bezny-Odemknuti" @((TriggerRelace 8), (TriggerRelace 3)) `
+        '-Akce Bezny -Rezim Odemknuti' 'Navrat do bezneho rezimu po odemknuti nebo vzdalenem pripojeni' 1
 } else { Smaz "${predpona}Bezny-Odemknuti" }
 
 Zapis "hotovo"

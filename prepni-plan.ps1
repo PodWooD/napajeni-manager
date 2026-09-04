@@ -84,10 +84,21 @@ function VytizeniGPU {
     return 0
 }
 
+function AktivniGuid {
+    return (((powercfg /getactivescheme) -replace '.*GUID:\s*([0-9a-fA-F\-]{36}).*','$1') -join '').Trim()
+}
+
 function Prepni {
-    & powercfg /setactive $cilovyGuid
-    if ($LASTEXITCODE -eq 0) { Zapis "PREPNUTO na '$cilovyNazev' (rezim: $Rezim)" }
-    else { Zapis "CHYBA pri prepinani (exit $LASTEXITCODE)" }
+    # Na jednu udalost muze prijit vic spousteni (odemknuti + vzdalene pripojeni,
+    # nebo opakovane pripojeni RDP). Kdyz uz cilovy plan bezi, neni co delat.
+    if ((AktivniGuid) -eq $cilovyGuid) {
+        Zapis "UZ AKTIVNI: '$cilovyNazev' (rezim: $Rezim) - neprepinam"
+    }
+    else {
+        & powercfg /setactive $cilovyGuid
+        if ($LASTEXITCODE -eq 0) { Zapis "PREPNUTO na '$cilovyNazev' (rezim: $Rezim)" }
+        else { Zapis "CHYBA pri prepinani (exit $LASTEXITCODE)" }
+    }
 
     if ($vypnoutTV -and (CB 'TV_Povoleno')) {
         $tv = Join-Path $slozka 'lg-tv.ps1'
