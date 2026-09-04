@@ -13,6 +13,7 @@ if not exist "%CSC%" (
 )
 
 "%CSC%" /nologo /target:winexe /optimize+ /out:NapajeniManager.exe ^
+    /win32manifest:NapajeniManager.manifest ^
     /reference:System.dll ^
     /reference:System.Drawing.dll ^
     /reference:System.Windows.Forms.dll ^

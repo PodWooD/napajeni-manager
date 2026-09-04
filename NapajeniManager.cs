@@ -6,6 +6,7 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
@@ -114,10 +115,12 @@ namespace NapajeniManager
         TextBox txtStav;
 
         Panel panLista, panLevy, panSpodni, panVrch;
+        Tlacitko btnZavriDole, btnZavriNahore, btnZvetsit, btnMinimalizovat;
+        bool stavSeNacita = false;
         StavovyPruh pruh;
         bool nacitam = false;      // potlaci hlaseni zmen behem plneni formulare
         bool zmeneno = false;      // uzivatel neco zmenil a jeste neulozil
-        Timer tikot;
+        System.Windows.Forms.Timer tikot;
 
         static readonly string[] DnyEn = { "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday" };
         static readonly string[] DnyCz = { "Pondělí","Úterý","Středa","Čtvrtek","Pátek","Sobota","Neděle" };
@@ -128,7 +131,14 @@ namespace NapajeniManager
             n = new Nastaveni(Path.Combine(slozka, "config.ini"));
 
             Text = "Napájení Manager";
-            ClientSize = new Size(960, 930);
+            // Nikdy nezacinat vetsi, nez je pracovni plocha - na notebooku by
+            // spodni lista s tlacitky skoncila pod hlavnim panelem.
+            var plocha = Screen.FromPoint(Cursor.Position).WorkingArea;
+            ClientSize = new Size(Math.Min(960, plocha.Width - 40), Math.Min(930, plocha.Height - 40));
+            // Stranky maji AutoScroll, takze i pri zmenseni zustane vse dosazitelne.
+            MinimumSize = new Size(640, 400);
+            MaximizedBounds = plocha;
+            AutoScaleMode = AutoScaleMode.Font;
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.None;
             BackColor = Barvy.Pozadi;
@@ -150,7 +160,7 @@ namespace NapajeniManager
             ObnovPruh();
 
             // Aktivni schema muze zmenit i naplanovana uloha, kdyz je okno otevrene.
-            tikot = new Timer();
+            tikot = new System.Windows.Forms.Timer();
             tikot.Interval = 3000;
             tikot.Tick += delegate { ObnovPruh(); };
             tikot.Start();
@@ -169,9 +179,57 @@ namespace NapajeniManager
             obsah.BringToFront();
         }
 
+        /// <summary>Okno nema ramecek, takze Windows samy velikost menit neumi.
+        /// Rekneme jim, ze okraje klientske plochy jsou uchyty pro tazeni.</summary>
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_NCHITTEST = 0x0084;
+            const int HTCLIENT = 1;
+            const int okraj = 6;
+
+            if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
+            {
+                base.WndProc(ref m);
+                if ((int)m.Result != HTCLIENT) return;
+
+                int lp = m.LParam.ToInt32();
+                var p = PointToClient(new Point((short)(lp & 0xFFFF), (short)(lp >> 16)));
+                bool vlevo = p.X <= okraj, vpravo = p.X >= ClientSize.Width - okraj;
+                bool nahore = p.Y <= okraj, dole = p.Y >= ClientSize.Height - okraj;
+
+                if (dole && vpravo)       m.Result = (IntPtr)17;  // HTBOTTOMRIGHT
+                else if (dole && vlevo)   m.Result = (IntPtr)16;  // HTBOTTOMLEFT
+                else if (nahore && vpravo) m.Result = (IntPtr)14; // HTTOPRIGHT
+                else if (nahore && vlevo)  m.Result = (IntPtr)13; // HTTOPLEFT
+                else if (dole)            m.Result = (IntPtr)15;  // HTBOTTOM
+                else if (nahore)          m.Result = (IntPtr)12;  // HTTOP
+                else if (vpravo)          m.Result = (IntPtr)11;  // HTRIGHT
+                else if (vlevo)           m.Result = (IntPtr)10;  // HTLEFT
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        void PrepniZvetseni()
+        {
+            MaximizedBounds = Screen.FromControl(this).WorkingArea;
+            WindowState = WindowState == FormWindowState.Maximized
+                ? FormWindowState.Normal : FormWindowState.Maximized;
+            SrovnejTlacitka();
+        }
+
+        /// <summary>Spodni tlacitko se ridi sirkou sveho panelu, ne sirkou okna.</summary>
+        void SrovnejTlacitka()
+        {
+            if (btnZavriDole == null || panSpodni == null) return;
+            btnZavriDole.Left = Math.Max(660, panSpodni.ClientSize.Width - btnZavriDole.Width - 24);
+            btnZavriDole.Top = 14;
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            SrovnejTlacitka();
             // Rozbalovaci seznamy hlasi zmenu vyberu jeste jednou pri vytvoreni
             // okenniho handlu. To neni zmena od uzivatele.
             zmeneno = false;
@@ -179,6 +237,28 @@ namespace NapajeniManager
 
             TmavyPosuvnik(txtStav);
             TmavyPosuvnik(txtMereni);
+            TmavyPosuvnik(obsah);
+            foreach (var st in stranky) TmavyPosuvnik(st);
+        }
+
+        // ---------------- prace mimo vlakno okna ----------------
+
+        /// <summary>Spusti pomalou praci na jinem vlakne a vysledek preda zpet
+        /// do vlakna okna. Bez toho okno po dobu behu skriptu nereaguje.</summary>
+        void NaPozadi(Func<string> prace, Action<string> hotovo)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string vysledek;
+                try { vysledek = prace(); }
+                catch (Exception ex) { vysledek = "CHYBA: " + ex.Message; }
+                try
+                {
+                    if (IsHandleCreated && !IsDisposed)
+                        BeginInvoke((MethodInvoker)delegate { if (!IsDisposed) hotovo(vysledek); });
+                }
+                catch { }
+            });
         }
 
         // ---------------- neulozene zmeny ----------------
@@ -250,20 +330,33 @@ namespace NapajeniManager
             {
                 if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, 0x2, 0); }
             };
+            lista.DoubleClick += delegate { PrepniZvetseni(); };
             panLista = lista;
             Controls.Add(lista);
 
-            var zavri = new Tlacitko();
-            zavri.Text = "✕"; zavri.Size = new Size(44, 32); zavri.Location = new Point(ClientSize.Width - 56, 8);
-            zavri.BarvaPozadi = Barvy.Pozadi; zavri.BarvaHover = Barvy.Cervena;
-            zavri.Click += delegate { Close(); };
-            lista.Controls.Add(zavri);
+            btnZavriNahore = new Tlacitko();
+            btnZavriNahore.Text = "✕"; btnZavriNahore.Size = new Size(44, 32);
+            btnZavriNahore.Location = new Point(ClientSize.Width - 56, 8);
+            btnZavriNahore.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnZavriNahore.BarvaPozadi = Barvy.Pozadi; btnZavriNahore.BarvaHover = Barvy.Cervena;
+            btnZavriNahore.Click += delegate { Close(); };
+            lista.Controls.Add(btnZavriNahore);
 
-            var min = new Tlacitko();
-            min.Text = "―"; min.Size = new Size(44, 32); min.Location = new Point(ClientSize.Width - 104, 8);
-            min.BarvaPozadi = Barvy.Pozadi; min.BarvaHover = Color.FromArgb(52, 55, 62);
-            min.Click += delegate { WindowState = FormWindowState.Minimized; };
-            lista.Controls.Add(min);
+            btnZvetsit = new Tlacitko();
+            btnZvetsit.Text = "□"; btnZvetsit.Size = new Size(44, 32);
+            btnZvetsit.Location = new Point(ClientSize.Width - 104, 8);
+            btnZvetsit.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnZvetsit.BarvaPozadi = Barvy.Pozadi; btnZvetsit.BarvaHover = Color.FromArgb(52, 55, 62);
+            btnZvetsit.Click += delegate { PrepniZvetseni(); };
+            lista.Controls.Add(btnZvetsit);
+
+            btnMinimalizovat = new Tlacitko();
+            btnMinimalizovat.Text = "―"; btnMinimalizovat.Size = new Size(44, 32);
+            btnMinimalizovat.Location = new Point(ClientSize.Width - 152, 8);
+            btnMinimalizovat.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnMinimalizovat.BarvaPozadi = Barvy.Pozadi; btnMinimalizovat.BarvaHover = Color.FromArgb(52, 55, 62);
+            btnMinimalizovat.Click += delegate { WindowState = FormWindowState.Minimized; };
+            lista.Controls.Add(btnMinimalizovat);
         }
 
         // ---------------- bocni navigace ----------------
@@ -305,10 +398,12 @@ namespace NapajeniManager
         // ---------------- obsah ----------------
         void ObsahovaCast()
         {
+            pruh = new StavovyPruh();
             var vrch = new Panel();
-            vrch.Dock = DockStyle.Top; vrch.Height = 116; vrch.BackColor = Barvy.Pozadi;
+            vrch.Dock = DockStyle.Top; vrch.BackColor = Barvy.Pozadi;
             vrch.Padding = new Padding(24, 8, 24, 8);
-            pruh = new StavovyPruh(); pruh.Dock = DockStyle.Fill;
+            vrch.Height = pruh.Height + vrch.Padding.Vertical;
+            pruh.Dock = DockStyle.Fill;
             vrch.Controls.Add(pruh);
 
             obsah = new Panel();
@@ -639,10 +734,13 @@ namespace NapajeniManager
             bTest.Click += delegate { Test(); };
             sp.Controls.Add(bTest);
 
-            var bZavri = new Tlacitko();
-            bZavri.Text = "Zavřít"; bZavri.Size = new Size(100, 38); bZavri.Location = new Point(ClientSize.Width - 124, 14);
-            bZavri.Click += delegate { Close(); };
-            sp.Controls.Add(bZavri);
+            // Panel je uzsi nez okno o sirku bocni navigace. Puvodni vypocet
+            // z ClientSize.Width tlacitko odsunul mimo panel a nebylo videt.
+            btnZavriDole = new Tlacitko();
+            btnZavriDole.Text = "Zavřít"; btnZavriDole.Size = new Size(100, 38);
+            btnZavriDole.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnZavriDole.Click += delegate { Close(); };
+            sp.Controls.Add(btnZavriDole);
         }
 
         // ---------------- zivy stav ----------------
@@ -910,51 +1008,52 @@ namespace NapajeniManager
         {
             if (MessageBox.Show("Měření na chvíli přepne režim napájení a zatíží procesor.\r\nTrvá asi minutu. Spustit?",
                 "Změřit", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+            // Hodnoty z ovladacich prvku si vytahneme tady - na jinem vlakne uz na ne nesmime.
+            string guidUspora = GuidZVyberu(cmbUspora);
+            string guidBezny  = GuidZVyberu(cmbBezny);
+
             btnMer.Enabled = false;
-            txtMereni.Text = "Měřím, chvíli strpení...";
-            Application.DoEvents();
-            Cursor = Cursors.WaitCursor;
-            try
-            {
-                string v = SpustPSVystup("-PlanUspora \"" + GuidZVyberu(cmbUspora) + "\" -PlanBezny \"" + GuidZVyberu(cmbBezny) + "\"",
-                                         "zmer-vykon.ps1", 600000);
-                if (string.IsNullOrEmpty(v.Trim())) { txtMereni.Text = "Měření nevrátilo výsledek."; }
-                else
-                {
-                    var md = Regex.Match(v, @"DOPORUCENO=(\d+)");
-                    string zobraz = Regex.Replace(v, @"\r?\nDOPORUCENO=\d+\s*$", "").Trim();
-                    txtMereni.Text = zobraz;
-                    if (md.Success)
-                    {
-                        int dop;
-                        if (int.TryParse(md.Groups[1].Value, out dop))
-                        {
-                            hodnotaMax = Omez(dop, 5, 100);
-                            ZobrazShrnuti();
-                            Zmena(this, EventArgs.Empty);
-                            MessageBox.Show("Doporučená hodnota " + dop + " % byla nastavena.\r\n\r\nUložte tlačítkem dole, aby se projevila.",
-                                "Změřeno", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex) { txtMereni.Text = "Měření selhalo: " + ex.Message; }
-            Cursor = Cursors.Default;
+            btnMer.Text = "Měřím…";
+            txtMereni.Text = "Měřím, chvíli strpení. Okno zůstane ovladatelné.";
+
+            NaPozadi(
+                delegate { return SpustPSVystup("-PlanUspora \"" + guidUspora + "\" -PlanBezny \"" + guidBezny + "\"", "zmer-vykon.ps1", 600000); },
+                DokonciMereni);
+        }
+
+        void DokonciMereni(string v)
+        {
             btnMer.Enabled = true;
+            btnMer.Text = "Změřit a nastavit automaticky";
+
+            if (v != null && v.StartsWith("CHYBA: ")) { txtMereni.Text = "Měření selhalo: " + v.Substring(7); return; }
+            if (v == null || v.Trim().Length == 0) { txtMereni.Text = "Měření nevrátilo výsledek."; return; }
+
+            var md = Regex.Match(v, @"DOPORUCENO=(\d+)");
+            txtMereni.Text = Regex.Replace(v, @"\r?\nDOPORUCENO=\d+\s*$", "").Trim();
+            if (!md.Success) return;
+
+            int dop;
+            if (!int.TryParse(md.Groups[1].Value, out dop)) return;
+            hodnotaMax = Omez(dop, 5, 100);
+            ZobrazShrnuti();
+            Zmena(this, EventArgs.Empty);
+            MessageBox.Show("Doporučená hodnota " + dop + " % byla nastavena.\r\n\r\nUložte tlačítkem dole, aby se projevila.",
+                "Změřeno", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         void HledejTV()
         {
-            Cursor = Cursors.WaitCursor;
-            try
-            {
-                string v = SpustPSVystup("-Hledat", "lg-tv.ps1", 120000).Trim();
-                var m = Regex.Match(v, @"(\d{1,3}(?:\.\d{1,3}){3})");
-                if (m.Success) { poleIP.Text = m.Groups[1].Value; MessageBox.Show("Nalezena televize: " + m.Groups[1].Value, "Hotovo"); }
-                else MessageBox.Show("Televize nenalezena.\r\n\r\n" + v, "Nenalezeno");
-            }
-            catch (Exception ex) { MessageBox.Show("Hledání selhalo: " + ex.Message, "Chyba"); }
-            Cursor = Cursors.Default;
+            NaPozadi(
+                delegate { return SpustPSVystup("-Hledat", "lg-tv.ps1", 120000).Trim(); },
+                delegate(string v)
+                {
+                    if (v != null && v.StartsWith("CHYBA: ")) { MessageBox.Show("Hledání selhalo: " + v.Substring(7), "Chyba"); return; }
+                    var m = Regex.Match(v ?? "", @"(\d{1,3}(?:\.\d{1,3}){3})");
+                    if (m.Success) { poleIP.Text = m.Groups[1].Value; MessageBox.Show("Nalezena televize: " + m.Groups[1].Value, "Hotovo"); }
+                    else MessageBox.Show("Televize nenalezena.\r\n\r\n" + v, "Nenalezeno");
+                });
         }
 
         void OdebratUlohy()
@@ -1021,7 +1120,19 @@ namespace NapajeniManager
 
         void ObnovStav()
         {
-            if (txtStav == null) return;
+            if (txtStav == null || stavSeNacita) return;
+            stavSeNacita = true;
+            txtStav.Text = "Načítám stav…";
+            NaPozadi(SestavStav, delegate(string t)
+            {
+                if (txtStav != null && !txtStav.IsDisposed) txtStav.Text = t;
+                stavSeNacita = false;
+            });
+        }
+
+        /// <summary>Bezi mimo vlakno okna - nesmi sahat na ovladaci prvky.</summary>
+        string SestavStav()
+        {
             var sb = new StringBuilder();
             sb.AppendLine("AKTIVNÍ REŽIM NAPÁJENÍ");
             sb.AppendLine("──────────────────────────────────────────────");
@@ -1047,7 +1158,7 @@ namespace NapajeniManager
             }
             else sb.AppendLine("(zatím žádné)");
 
-            txtStav.Text = sb.ToString();
+            return sb.ToString();
         }
 
         [STAThread]
