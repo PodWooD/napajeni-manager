@@ -101,17 +101,23 @@ namespace NapajeniManager
         Tlacitko btnMer;
 
         Prepinac pTyden, pTydenTV, pTydenZamk, pVikend, pVikendTV, pVikendZamk;
-        DateTimePicker dtTyden, dtVikend;
-        Cislovac cTydenKol, cTydenInt, cVikendKol, cVikendInt;
-        CheckedListBox clbTydenDny, clbVikendDny;
+        Cislovac cTydenHod, cTydenMin, cVikendHod, cVikendMin;
+        Cislovac cTydenKlid, cVikendKlid;
+        VyberDnu dnyTyden, dnyVikend;
 
         Prepinac pZamknuti, pZamknutiTV, pOdemknuti;
-        Cislovac cZamkKol, cZamkInt;
+        Cislovac cZamkKlid;
 
         Prepinac pTV;
         Pole poleIP, polePort;
 
         TextBox txtStav;
+
+        Panel panLista, panLevy, panSpodni, panVrch;
+        StavovyPruh pruh;
+        bool nacitam = false;      // potlaci hlaseni zmen behem plneni formulare
+        bool zmeneno = false;      // uzivatel neco zmenil a jeste neulozil
+        Timer tikot;
 
         static readonly string[] DnyEn = { "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday" };
         static readonly string[] DnyCz = { "Pondělí","Úterý","Středa","Čtvrtek","Pátek","Sobota","Neděle" };
@@ -122,7 +128,7 @@ namespace NapajeniManager
             n = new Nastaveni(Path.Combine(slozka, "config.ini"));
 
             Text = "Napájení Manager";
-            ClientSize = new Size(960, 800);
+            ClientSize = new Size(960, 910);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.None;
             BackColor = Barvy.Pozadi;
@@ -137,8 +143,84 @@ namespace NapajeniManager
             SpodniLista();
 
             NacistDoFormulare();
+            SledujZmeny();
+            SrovnejUkotveni();
             Prepni(0);
             ObnovStav();
+            ObnovPruh();
+
+            // Aktivni schema muze zmenit i naplanovana uloha, kdyz je okno otevrene.
+            tikot = new Timer();
+            tikot.Interval = 3000;
+            tikot.Tick += delegate { ObnovPruh(); };
+            tikot.Start();
+
+            FormClosing += HlidejZavreni;
+        }
+
+        /// <summary>WinForms ukotvuje panely v obracenem poradi z-osy. Aby Fill
+        /// zabral az to, co zbyde, musi byt uplne vpredu - jinak se prekresli pres nej.</summary>
+        void SrovnejUkotveni()
+        {
+            panLista.BringToFront();
+            panLevy.BringToFront();
+            panSpodni.BringToFront();
+            panVrch.BringToFront();
+            obsah.BringToFront();
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            // Rozbalovaci seznamy hlasi zmenu vyberu jeste jednou pri vytvoreni
+            // okenniho handlu. To neni zmena od uzivatele.
+            zmeneno = false;
+            ObnovPruh();
+        }
+
+        // ---------------- neulozene zmeny ----------------
+
+        /// <summary>Prihlasi se ke zmenam vsech ovladacich prvku. Bez toho
+        /// uzivatel zavre okno v presvedceni, ze si neco nastavil.</summary>
+        void SledujZmeny()
+        {
+            foreach (var c in VsechnyPrvky(this))
+            {
+                var pr = c as Prepinac;      if (pr != null) { pr.ZmenaStavu += Zmena; continue; }
+                var ci = c as Cislovac;      if (ci != null) { ci.ZmenaHodnoty += Zmena; continue; }
+                var vd = c as VyberDnu;      if (vd != null) { vd.ZmenaHodnoty += Zmena; continue; }
+                var vy = c as Vyber;         if (vy != null) { vy.SelectedIndexChanged += Zmena; continue; }
+                var tb = c as TextBox;       if (tb != null && !tb.ReadOnly) { tb.TextChanged += Zmena; continue; }
+            }
+        }
+
+        IEnumerable<Control> VsechnyPrvky(Control koren)
+        {
+            foreach (Control c in koren.Controls)
+            {
+                yield return c;
+                foreach (var v in VsechnyPrvky(c)) yield return v;
+            }
+        }
+
+        void Zmena(object odesilatel, EventArgs e)
+        {
+            if (nacitam) return;
+            if (!zmeneno) { zmeneno = true; ObnovPruh(); }
+        }
+
+        void HlidejZavreni(object odesilatel, FormClosingEventArgs e)
+        {
+            if (!zmeneno) return;
+            var odpoved = MessageBox.Show(
+                "Máte neuložené změny. Uložit je a nastavit úlohy?",
+                "Neuložené změny", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+
+            if (odpoved == DialogResult.Cancel) { e.Cancel = true; return; }
+            if (odpoved == DialogResult.Yes)
+            {
+                if (!Uloz()) e.Cancel = true;   // ulozeni neproslo, okno necháme otevrene
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -165,6 +247,7 @@ namespace NapajeniManager
             {
                 if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, 0x2, 0); }
             };
+            panLista = lista;
             Controls.Add(lista);
 
             var zavri = new Tlacitko();
@@ -190,8 +273,8 @@ namespace NapajeniManager
             {
                 using (var p = new Pen(Barvy.Okraj)) e.Graphics.DrawLine(p, levy.Width - 1, 0, levy.Width - 1, levy.Height);
             };
+            panLevy = levy;
             Controls.Add(levy);
-            levy.BringToFront();
 
             string[] popisky = { "Režimy napájení", "Noční přepnutí", "Zamknutí počítače", "Televize", "Stav a záznam" };
             int y = 16;
@@ -219,12 +302,19 @@ namespace NapajeniManager
         // ---------------- obsah ----------------
         void ObsahovaCast()
         {
+            var vrch = new Panel();
+            vrch.Dock = DockStyle.Top; vrch.Height = 96; vrch.BackColor = Barvy.Pozadi;
+            vrch.Padding = new Padding(24, 8, 24, 8);
+            pruh = new StavovyPruh(); pruh.Dock = DockStyle.Fill;
+            vrch.Controls.Add(pruh);
+
             obsah = new Panel();
             obsah.Dock = DockStyle.Fill;
             obsah.BackColor = Barvy.Pozadi;
-            obsah.Padding = new Padding(24, 16, 24, 16);
+            obsah.Padding = new Padding(24, 8, 24, 16);
             Controls.Add(obsah);
-            obsah.BringToFront();
+            panVrch = vrch;
+            Controls.Add(vrch);
 
             stranky.Add(StrRezimy());
             stranky.Add(StrNoc());
@@ -272,24 +362,36 @@ namespace NapajeniManager
             return k;
         }
 
-        CheckedListBox SeznamDnu(int x, int y)
+        /// <summary>Dva cislovace a dvojtecka - vypada stejne jako zbytek okna,
+        /// na rozdil od systemoveho DateTimePickeru, ktery se kresli bile.</summary>
+        void VlozCas(Control rodic, int x, int y, out Cislovac hod, out Cislovac min)
         {
-            var c = new CheckedListBox();
-            c.Location = new Point(x, y); c.Size = new Size(132, 152);
-            c.BackColor = Color.FromArgb(28, 30, 34); c.ForeColor = Barvy.Text;
-            c.CheckOnClick = true; c.BorderStyle = BorderStyle.None;
-            c.Font = Pisma.Bezny; c.IntegralHeight = false;
-            foreach (string dd in DnyCz) c.Items.Add(dd);
-            return c;
+            hod = new Cislovac();
+            hod.Location = new Point(x, y); hod.Size = new Size(96, 32);
+            hod.Minimum = 0; hod.Maximum = 23; hod.Dokola = true; hod.Cislic = 2;
+            rodic.Controls.Add(hod);
+
+            var dvojtecka = new Label();
+            dvojtecka.Text = ":"; dvojtecka.Font = Pisma.Sekce; dvojtecka.ForeColor = Barvy.TextSlaby;
+            dvojtecka.Location = new Point(x + 98, y + 5); dvojtecka.Size = new Size(10, 22);
+            dvojtecka.TextAlign = ContentAlignment.MiddleCenter;
+            rodic.Controls.Add(dvojtecka);
+
+            min = new Cislovac();
+            min.Location = new Point(x + 110, y); min.Size = new Size(96, 32);
+            min.Minimum = 0; min.Maximum = 59; min.Krok = 5; min.Dokola = true; min.Cislic = 2;
+            rodic.Controls.Add(min);
         }
 
-        DateTimePicker Cas(int x, int y)
+        /// <summary>Cislovac ukazujici primo minuty klidu misto poctu vzorku
+        /// a intervalu. Uvnitr se to porad pocita po trech minutach.</summary>
+        Cislovac Klid(Control rodic, int x, int y)
         {
-            var d = new DateTimePicker();
-            d.Format = DateTimePickerFormat.Custom; d.CustomFormat = "HH:mm";
-            d.ShowUpDown = true; d.Location = new Point(x, y); d.Size = new Size(76, 26);
-            d.Font = Pisma.Bezny; d.CalendarMonthBackground = Barvy.Karta;
-            return d;
+            var c = new Cislovac();
+            c.Location = new Point(x, y); c.Size = new Size(110, 32);
+            c.Minimum = 3; c.Maximum = 120; c.Krok = 3;
+            rodic.Controls.Add(c);
+            return c;
         }
 
         // ---------------- stranka: rezimy ----------------
@@ -333,7 +435,7 @@ namespace NapajeniManager
             txtMereni.Location = new Point(16, 158); txtMereni.Size = new Size(644, 112);
             txtMereni.BackColor = Color.FromArgb(28, 30, 34); txtMereni.ForeColor = Barvy.TextSlaby;
             txtMereni.Font = Pisma.Mono;
-            txtMereni.Text = "Zatím nezměřeno.\r\n\r\nStiskněte tlačítko výše — program si sám zjistí, jak moc se dá\ntento počítač zpomalit, aniž by přestal být příjemně ovladatelný.";
+            txtMereni.Text = "Zatím nezměřeno.\r\n\r\nStiskněte tlačítko výše — program si sám zjistí, jak moc se dá\r\ntento počítač zpomalit, aniž by přestal být příjemně ovladatelný.";
             k2.Controls.Add(txtMereni);
             s.Controls.Add(k2);
 
@@ -369,41 +471,45 @@ namespace NapajeniManager
             s.Controls.Add(Nadpis("Noční přepnutí", 4, 4));
             s.Controls.Add(Slaby("Přepne se až poté, co systém utichne — běžící render nebo výpočet to nepřeruší.", 4, 34, 636, 20));
 
-            var k1 = NovaKarta("Ve všední dny", 4, 62, 676, 254);
+            var k1 = NovaKarta("Ve všední dny", 4, 62, 676, 252);
             pTyden = new Prepinac(); pTyden.Text = "Zapnuto"; pTyden.Location = new Point(16, 50); pTyden.Size = new Size(160, 26);
             k1.Controls.Add(pTyden);
-            k1.Controls.Add(Popisek("Čas přepnutí", 16, 92, 120));
-            dtTyden = Cas(16, 114); k1.Controls.Add(dtTyden);
-            k1.Controls.Add(Popisek("Měření klidu", 16, 152, 120));
-            cTydenKol = new Cislovac(); cTydenKol.Location = new Point(16, 174); cTydenKol.Minimum = 1; cTydenKol.Maximum = 20;
-            k1.Controls.Add(cTydenKol);
-            k1.Controls.Add(Popisek("Interval (s)", 140, 152, 120));
-            cTydenInt = new Cislovac(); cTydenInt.Location = new Point(140, 174); cTydenInt.Minimum = 30; cTydenInt.Maximum = 3600; cTydenInt.Krok = 30;
-            k1.Controls.Add(cTydenInt);
-            k1.Controls.Add(Popisek("Dny", 272, 50, 60));
-            clbTydenDny = SeznamDnu(272, 72); k1.Controls.Add(clbTydenDny);
-            pTydenTV = new Prepinac(); pTydenTV.Text = "Vypnout televizi"; pTydenTV.Location = new Point(430, 76); pTydenTV.Size = new Size(190, 26);
+
+            k1.Controls.Add(Popisek("Které dny", 16, 88, 120));
+            dnyTyden = new VyberDnu(); dnyTyden.Location = new Point(16, 110); dnyTyden.Size = new Size(280, 34);
+            k1.Controls.Add(dnyTyden);
+
+            k1.Controls.Add(Popisek("Nejdřív v", 16, 156, 120));
+            VlozCas(k1, 16, 178, out cTydenHod, out cTydenMin);
+
+            k1.Controls.Add(Popisek("Až bude počítač v klidu", 330, 156, 200));
+            cTydenKlid = Klid(k1, 330, 178);
+            k1.Controls.Add(Slaby("minut", 446, 185, 60, 20));
+
+            pTydenTV = new Prepinac(); pTydenTV.Text = "Vypnout televizi"; pTydenTV.Location = new Point(330, 60); pTydenTV.Size = new Size(190, 26);
             k1.Controls.Add(pTydenTV);
-            pTydenZamk = new Prepinac(); pTydenZamk.Text = "Zamknout počítač"; pTydenZamk.Location = new Point(430, 112); pTydenZamk.Size = new Size(190, 26);
+            pTydenZamk = new Prepinac(); pTydenZamk.Text = "Zamknout počítač"; pTydenZamk.Location = new Point(330, 96); pTydenZamk.Size = new Size(190, 26);
             k1.Controls.Add(pTydenZamk);
             s.Controls.Add(k1);
 
-            var k2 = NovaKarta("O víkendu", 4, 328, 676, 254);
+            var k2 = NovaKarta("O víkendu", 4, 326, 676, 252);
             pVikend = new Prepinac(); pVikend.Text = "Zapnuto"; pVikend.Location = new Point(16, 50); pVikend.Size = new Size(160, 26);
             k2.Controls.Add(pVikend);
-            k2.Controls.Add(Popisek("Čas přepnutí", 16, 92, 120));
-            dtVikend = Cas(16, 114); k2.Controls.Add(dtVikend);
-            k2.Controls.Add(Popisek("Měření klidu", 16, 152, 120));
-            cVikendKol = new Cislovac(); cVikendKol.Location = new Point(16, 174); cVikendKol.Minimum = 1; cVikendKol.Maximum = 20;
-            k2.Controls.Add(cVikendKol);
-            k2.Controls.Add(Popisek("Interval (s)", 140, 152, 120));
-            cVikendInt = new Cislovac(); cVikendInt.Location = new Point(140, 174); cVikendInt.Minimum = 30; cVikendInt.Maximum = 3600; cVikendInt.Krok = 30;
-            k2.Controls.Add(cVikendInt);
-            k2.Controls.Add(Popisek("Dny", 272, 50, 60));
-            clbVikendDny = SeznamDnu(272, 72); k2.Controls.Add(clbVikendDny);
-            pVikendTV = new Prepinac(); pVikendTV.Text = "Vypnout televizi"; pVikendTV.Location = new Point(430, 76); pVikendTV.Size = new Size(190, 26);
+
+            k2.Controls.Add(Popisek("Které dny", 16, 88, 120));
+            dnyVikend = new VyberDnu(); dnyVikend.Location = new Point(16, 110); dnyVikend.Size = new Size(280, 34);
+            k2.Controls.Add(dnyVikend);
+
+            k2.Controls.Add(Popisek("Nejdřív v", 16, 156, 120));
+            VlozCas(k2, 16, 178, out cVikendHod, out cVikendMin);
+
+            k2.Controls.Add(Popisek("Až bude počítač v klidu", 330, 156, 200));
+            cVikendKlid = Klid(k2, 330, 178);
+            k2.Controls.Add(Slaby("minut", 446, 185, 60, 20));
+
+            pVikendTV = new Prepinac(); pVikendTV.Text = "Vypnout televizi"; pVikendTV.Location = new Point(330, 60); pVikendTV.Size = new Size(190, 26);
             k2.Controls.Add(pVikendTV);
-            pVikendZamk = new Prepinac(); pVikendZamk.Text = "Zamknout počítač"; pVikendZamk.Location = new Point(430, 112); pVikendZamk.Size = new Size(190, 26);
+            pVikendZamk = new Prepinac(); pVikendZamk.Text = "Zamknout počítač"; pVikendZamk.Location = new Point(330, 96); pVikendZamk.Size = new Size(190, 26);
             k2.Controls.Add(pVikendZamk);
             s.Controls.Add(k2);
 
@@ -419,12 +525,9 @@ namespace NapajeniManager
             var k1 = NovaKarta("Po zamknutí", 4, 46, 676, 200);
             pZamknuti = new Prepinac(); pZamknuti.Text = "Přepnout do úsporného režimu"; pZamknuti.Location = new Point(16, 52); pZamknuti.Size = new Size(300, 26);
             k1.Controls.Add(pZamknuti);
-            k1.Controls.Add(Popisek("Měření klidu", 16, 94, 120));
-            cZamkKol = new Cislovac(); cZamkKol.Location = new Point(16, 116); cZamkKol.Minimum = 1; cZamkKol.Maximum = 20;
-            k1.Controls.Add(cZamkKol);
-            k1.Controls.Add(Popisek("Interval (s)", 140, 94, 120));
-            cZamkInt = new Cislovac(); cZamkInt.Location = new Point(140, 116); cZamkInt.Minimum = 30; cZamkInt.Maximum = 3600; cZamkInt.Krok = 30;
-            k1.Controls.Add(cZamkInt);
+            k1.Controls.Add(Popisek("Až bude počítač v klidu", 16, 94, 200));
+            cZamkKlid = Klid(k1, 16, 116);
+            k1.Controls.Add(Slaby("minut", 132, 123, 60, 20));
             pZamknutiTV = new Prepinac(); pZamknutiTV.Text = "Vypnout i televizi"; pZamknutiTV.Location = new Point(16, 158); pZamknutiTV.Size = new Size(240, 26);
             k1.Controls.Add(pZamknutiTV);
             k1.Controls.Add(Slaby("Když se vrátíte a odemknete dřív, než uplyne doba klidu,\npřepnutí se zruší a počítač zůstane na plném výkonu.", 300, 100, 320, 44));
@@ -515,8 +618,8 @@ namespace NapajeniManager
             {
                 using (var p = new Pen(Barvy.Okraj)) e.Graphics.DrawLine(p, 0, 0, sp.Width, 0);
             };
+            panSpodni = sp;
             Controls.Add(sp);
-            sp.BringToFront();
 
             var bUloz = new Tlacitko();
             bUloz.Text = "Uložit a nastavit úlohy"; bUloz.JakoHlavni();
@@ -533,6 +636,92 @@ namespace NapajeniManager
             bZavri.Text = "Zavřít"; bZavri.Size = new Size(100, 38); bZavri.Location = new Point(ClientSize.Width - 124, 14);
             bZavri.Click += delegate { Close(); };
             sp.Controls.Add(bZavri);
+        }
+
+        // ---------------- zivy stav ----------------
+        [DllImport("powrprof.dll")] static extern uint PowerGetActiveScheme(IntPtr koren, out IntPtr guid);
+        [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr h);
+
+        /// <summary>Aktivni schema primo z Windows - levnejsi nez spoustet
+        /// powercfg kazde tri vteriny.</summary>
+        string AktivniPlan()
+        {
+            IntPtr p = IntPtr.Zero;
+            try
+            {
+                if (PowerGetActiveScheme(IntPtr.Zero, out p) != 0 || p == IntPtr.Zero) return "";
+                return ((Guid)Marshal.PtrToStructure(p, typeof(Guid))).ToString();
+            }
+            catch { return ""; }
+            finally { if (p != IntPtr.Zero) LocalFree(p); }
+        }
+
+        string NazevPlanu(string guid)
+        {
+            foreach (var pl in plany)
+                if (string.Equals(pl.Guid, guid, StringComparison.OrdinalIgnoreCase)) return pl.Nazev;
+            return "neznámé schéma";
+        }
+
+        /// <summary>Nejblizsi naplanovane prepnuti podle ulozeneho nastaveni.</summary>
+        string DalsiAkce()
+        {
+            if (zmeneno) return "Nastavení není uloženo — úlohy zatím běží podle předchozího.";
+
+            DateTime? nej = null;
+            string co = "";
+            if (n.B("Tyden_Povoleno")) NejblizsiDen(n.S("Tyden_Dny"), n.S("Tyden_Cas"), "úsporný režim", ref nej, ref co);
+            if (n.B("Vikend_Povoleno")) NejblizsiDen(n.S("Vikend_Dny"), n.S("Vikend_Cas"), "úsporný režim", ref nej, ref co);
+
+            if (nej == null)
+            {
+                if (n.B("Zamknuti_Povoleno")) return "Další akce: až zamknete počítač a systém utichne.";
+                return "Žádné automatické přepnutí není zapnuté.";
+            }
+
+            var d = nej.Value;
+            string kdy = d.Date == DateTime.Today ? "dnes"
+                       : d.Date == DateTime.Today.AddDays(1) ? "zítra"
+                       : DnyCz[((int)d.DayOfWeek + 6) % 7].ToLower();
+            return string.Format("Další akce: {0} v {1:HH:mm} → {2}", kdy, d, co);
+        }
+
+        void NejblizsiDen(string dny, string cas, string co, ref DateTime? nej, ref string popis)
+        {
+            if (string.IsNullOrEmpty(dny)) return;
+            var t = ParseCas(cas);
+            for (int i = 0; i < 8; i++)
+            {
+                var kandidat = DateTime.Today.AddDays(i).AddHours(t.Hour).AddMinutes(t.Minute);
+                if (kandidat <= DateTime.Now) continue;
+                if (dny.IndexOf(kandidat.DayOfWeek.ToString(), StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (nej == null || kandidat < nej.Value) { nej = kandidat; popis = co; }
+                return;
+            }
+        }
+
+        void ObnovPruh()
+        {
+            if (pruh == null) return;
+
+            string aktivni = AktivniPlan();
+            string guidUspora = n.S("PlanUspora");
+            bool uspora = !string.IsNullOrEmpty(aktivni) && string.Equals(aktivni, guidUspora, StringComparison.OrdinalIgnoreCase);
+
+            pruh.Uspora = uspora;
+            pruh.Rezim = uspora ? "Úsporný režim" : "Běžný režim";
+            pruh.Detail = string.IsNullOrEmpty(aktivni)
+                ? "schéma se nepodařilo zjistit"
+                : "schéma " + NazevPlanu(aktivni) + (uspora ? "   ·   výkon omezen na " + hodnotaMax + " %" : "   ·   plný výkon");
+            pruh.Dalsi = DalsiAkce();
+
+            if (!n.B("TV_Povoleno") || n.S("TV_IP") == "") pruh.Televize = "";
+            else pruh.Televize = File.Exists(Path.Combine(slozka, "lg-tv-key.txt"))
+                ? "Televize " + n.S("TV_IP") + " · spárována"
+                : "Televize " + n.S("TV_IP") + " · nespárována";
+
+            pruh.Neulozeno = zmeneno;
+            pruh.Invalidate();
         }
 
         // ---------------- data ----------------
@@ -558,20 +747,27 @@ namespace NapajeniManager
 
         DateTime ParseCas(string s) { DateTime v; return DateTime.TryParse("2000-01-01 " + s, out v) ? v : DateTime.Today; }
 
-        void NastavDny(CheckedListBox clb, string dny)
+        // Skripty pracuji s poctem mereni a intervalem mezi nimi. Uzivateli
+        // ukazujeme jen vyslednou dobu klidu v minutach; interval drzime
+        // na trech minutach, coz je rozumny kompromis mezi reakci a zatezi.
+        const int IntervalS = 180;
+
+        int NaMinuty(int kolikrat, int interval)
         {
-            var set = new HashSet<string>(dny.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()), StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < DnyEn.Length; i++) clb.SetItemChecked(i, set.Contains(DnyEn[i]));
+            if (interval <= 0) interval = IntervalS;
+            int m = (int)Math.Round(kolikrat * interval / 60.0 / 3.0) * 3;
+            return Omez(m, 3, 120);
         }
 
-        string ZiskejDny(CheckedListBox clb)
-        {
-            var l = new List<string>();
-            for (int i = 0; i < DnyEn.Length; i++) if (clb.GetItemChecked(i)) l.Add(DnyEn[i]);
-            return string.Join(",", l.ToArray());
-        }
+        int NaPocet(int minut) { return Math.Max(1, (int)Math.Round(minut * 60.0 / IntervalS)); }
 
         void NacistDoFormulare()
+        {
+            nacitam = true;
+            try { PlnFormular(); } finally { nacitam = false; }
+        }
+
+        void PlnFormular()
         {
             NaplnVyber(cmbBezny, n.S("PlanBezny"));
             NaplnVyber(cmbUspora, n.S("PlanUspora"));
@@ -584,24 +780,23 @@ namespace NapajeniManager
             pSpanek.Zapnuto = n.B("ZakazatSpanek");
 
             pTyden.Zapnuto = n.B("Tyden_Povoleno");
-            dtTyden.Value = ParseCas(n.S("Tyden_Cas"));
-            cTydenKol.Hodnota = Omez(n.I("Tyden_KolKlidu"), 1, 20);
-            cTydenInt.Hodnota = Omez(n.I("Tyden_IntervalS"), 30, 3600);
+            var casT = ParseCas(n.S("Tyden_Cas"));
+            cTydenHod.Hodnota = casT.Hour; cTydenMin.Hodnota = casT.Minute;
+            cTydenKlid.Hodnota = NaMinuty(n.I("Tyden_KolKlidu"), n.I("Tyden_IntervalS"));
             pTydenTV.Zapnuto = n.B("Tyden_VypnoutTV");
             pTydenZamk.Zapnuto = n.B("Tyden_Zamknout");
-            NastavDny(clbTydenDny, n.S("Tyden_Dny"));
+            dnyTyden.Dny = n.S("Tyden_Dny");
 
             pVikend.Zapnuto = n.B("Vikend_Povoleno");
-            dtVikend.Value = ParseCas(n.S("Vikend_Cas"));
-            cVikendKol.Hodnota = Omez(n.I("Vikend_KolKlidu"), 1, 20);
-            cVikendInt.Hodnota = Omez(n.I("Vikend_IntervalS"), 30, 3600);
+            var casV = ParseCas(n.S("Vikend_Cas"));
+            cVikendHod.Hodnota = casV.Hour; cVikendMin.Hodnota = casV.Minute;
+            cVikendKlid.Hodnota = NaMinuty(n.I("Vikend_KolKlidu"), n.I("Vikend_IntervalS"));
             pVikendTV.Zapnuto = n.B("Vikend_VypnoutTV");
             pVikendZamk.Zapnuto = n.B("Vikend_Zamknout");
-            NastavDny(clbVikendDny, n.S("Vikend_Dny"));
+            dnyVikend.Dny = n.S("Vikend_Dny");
 
             pZamknuti.Zapnuto = n.B("Zamknuti_Povoleno");
-            cZamkKol.Hodnota = Omez(n.I("Zamknuti_KolKlidu"), 1, 20);
-            cZamkInt.Hodnota = Omez(n.I("Zamknuti_IntervalS"), 30, 3600);
+            cZamkKlid.Hodnota = NaMinuty(n.I("Zamknuti_KolKlidu"), n.I("Zamknuti_IntervalS"));
             pZamknutiTV.Zapnuto = n.B("Zamknuti_VypnoutTV");
             pOdemknuti.Zapnuto = n.B("Odemknuti_Povoleno");
 
@@ -629,13 +824,13 @@ namespace NapajeniManager
             try { n.Uloz(); } catch { }
         }
 
-        void Uloz()
+        bool Uloz()
         {
             if (GuidZVyberu(cmbBezny) == GuidZVyberu(cmbUspora))
             {
                 MessageBox.Show("Běžný a úsporný režim nemohou být stejné schéma.", "Nelze uložit",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                return false;
             }
 
             n.Set("PlanBezny", GuidZVyberu(cmbBezny));
@@ -647,24 +842,24 @@ namespace NapajeniManager
             n.Set("ZakazatSpanek", pSpanek.Zapnuto);
 
             n.Set("Tyden_Povoleno", pTyden.Zapnuto);
-            n.Set("Tyden_Cas", dtTyden.Value.ToString("HH:mm"));
-            n.Set("Tyden_Dny", ZiskejDny(clbTydenDny));
-            n.Set("Tyden_KolKlidu", cTydenKol.Hodnota);
-            n.Set("Tyden_IntervalS", cTydenInt.Hodnota);
+            n.Set("Tyden_Cas", string.Format("{0:00}:{1:00}", cTydenHod.Hodnota, cTydenMin.Hodnota));
+            n.Set("Tyden_Dny", dnyTyden.Dny);
+            n.Set("Tyden_KolKlidu", NaPocet(cTydenKlid.Hodnota));
+            n.Set("Tyden_IntervalS", IntervalS);
             n.Set("Tyden_VypnoutTV", pTydenTV.Zapnuto);
             n.Set("Tyden_Zamknout", pTydenZamk.Zapnuto);
 
             n.Set("Vikend_Povoleno", pVikend.Zapnuto);
-            n.Set("Vikend_Cas", dtVikend.Value.ToString("HH:mm"));
-            n.Set("Vikend_Dny", ZiskejDny(clbVikendDny));
-            n.Set("Vikend_KolKlidu", cVikendKol.Hodnota);
-            n.Set("Vikend_IntervalS", cVikendInt.Hodnota);
+            n.Set("Vikend_Cas", string.Format("{0:00}:{1:00}", cVikendHod.Hodnota, cVikendMin.Hodnota));
+            n.Set("Vikend_Dny", dnyVikend.Dny);
+            n.Set("Vikend_KolKlidu", NaPocet(cVikendKlid.Hodnota));
+            n.Set("Vikend_IntervalS", IntervalS);
             n.Set("Vikend_VypnoutTV", pVikendTV.Zapnuto);
             n.Set("Vikend_Zamknout", pVikendZamk.Zapnuto);
 
             n.Set("Zamknuti_Povoleno", pZamknuti.Zapnuto);
-            n.Set("Zamknuti_KolKlidu", cZamkKol.Hodnota);
-            n.Set("Zamknuti_IntervalS", cZamkInt.Hodnota);
+            n.Set("Zamknuti_KolKlidu", NaPocet(cZamkKlid.Hodnota));
+            n.Set("Zamknuti_IntervalS", IntervalS);
             n.Set("Zamknuti_VypnoutTV", pZamknutiTV.Zapnuto);
             n.Set("Odemknuti_Povoleno", pOdemknuti.Zapnuto);
 
@@ -678,14 +873,18 @@ namespace NapajeniManager
                 Cursor = Cursors.WaitCursor;
                 SpustPSSync("", "nastav-ulohy.ps1", 90000);
                 Cursor = Cursors.Default;
+                zmeneno = false;
                 MessageBox.Show("Nastavení uloženo a úlohy přenastaveny.", "Hotovo",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 ObnovStav();
+                ObnovPruh();
+                return true;
             }
             catch (Exception ex)
             {
                 Cursor = Cursors.Default;
                 MessageBox.Show("Uložení selhalo:\r\n" + ex.Message, "Chyba", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
             }
         }
 
@@ -714,6 +913,7 @@ namespace NapajeniManager
                         {
                             hodnotaMax = Omez(dop, 5, 100);
                             ZobrazShrnuti();
+                            Zmena(this, EventArgs.Empty);
                             MessageBox.Show("Doporučená hodnota " + dop + " % byla nastavena.\r\n\r\nUložte tlačítkem dole, aby se projevila.",
                                 "Změřeno", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         }

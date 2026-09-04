@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -29,7 +29,21 @@ namespace NapajeniManager
         public static readonly Font Bezny   = new Font("Segoe UI", 9.75F);
         public static readonly Font Maly    = new Font("Segoe UI", 8.75F);
         public static readonly Font Velky   = new Font("Segoe UI Semibold", 20F);
-        public static readonly Font Mono    = new Font("Cascadia Mono", 9F);
+        public static readonly Font Mono    = NejlepsiMono(9F);
+
+        /// <summary>Prvni dostupne neproporcionalni pismo. Bez teto kontroly by
+        /// Windows na cizim stroji podstrcily Microsoft Sans Serif a tabulka
+        /// mereni by se rozsypala.</summary>
+        static Font NejlepsiMono(float velikost)
+        {
+            foreach (string jmeno in new[] { "Cascadia Mono", "Consolas", "Courier New" })
+            {
+                var f = new Font(jmeno, velikost);
+                if (string.Equals(f.Name, jmeno, StringComparison.OrdinalIgnoreCase)) return f;
+                f.Dispose();
+            }
+            return new Font(FontFamily.GenericMonospace, velikost);
+        }
     }
 
     public static class Kresleni
@@ -73,6 +87,15 @@ namespace NapajeniManager
             DoubleBuffered = true;
             BackColor = Barvy.Panel;
             ForeColor = Barvy.Text;
+        }
+
+        /// <summary>Prvky vlozene do karty dedi barvu panelu, ne karty - bez tohoto
+        /// se kolem kazdeho popisku kresli svetlejsi obdelnik.</summary>
+        protected override void OnControlAdded(ControlEventArgs e)
+        {
+            if (e.Control is Label || e.Control is Prepinac || e.Control is Cislovac || e.Control is VyberDnu)
+                e.Control.BackColor = Barvy.Karta;
+            base.OnControlAdded(e);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -318,10 +341,34 @@ namespace NapajeniManager
         Rectangle rMinus, rPlus;
         int hoverTl = 0;
 
-        public int Hodnota { get { return hodnota; } set { hodnota = Math.Max(min, Math.Min(max, value)); Invalidate(); } }
+        public event EventHandler ZmenaHodnoty;
+
+        public int Hodnota
+        {
+            get { return hodnota; }
+            set
+            {
+                int v = Dokola ? Pretoc(value) : Math.Max(min, Math.Min(max, value));
+                if (v == hodnota) return;
+                hodnota = v;
+                Invalidate();
+                if (ZmenaHodnoty != null) ZmenaHodnoty(this, EventArgs.Empty);
+            }
+        }
         public int Minimum { get { return min; } set { min = value; } }
         public int Maximum { get { return max; } set { max = value; } }
         public int Krok = 1;
+        /// <summary>Za maximem pokracuje od minima - pro hodiny a minuty.</summary>
+        public bool Dokola = false;
+        /// <summary>Doplni zleva nuly, aby cas vypadal jako 07 a ne 7.</summary>
+        public int Cislic = 1;
+
+        int Pretoc(int v)
+        {
+            int rozsah = max - min + 1;
+            if (rozsah <= 0) return min;
+            return min + ((v - min) % rozsah + rozsah) % rozsah;
+        }
 
         public Cislovac()
         {
@@ -370,7 +417,7 @@ namespace NapajeniManager
 
             TextRenderer.DrawText(g, "−", Pisma.Bezny, rMinus, Barvy.TextSlaby, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             TextRenderer.DrawText(g, "+", Pisma.Bezny, rPlus, Barvy.TextSlaby, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(g, hodnota.ToString(), Font, r, ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, hodnota.ToString().PadLeft(Cislic, '0'), Font, r, ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
     }
 
@@ -397,6 +444,152 @@ namespace NapajeniManager
             TextRenderer.DrawText(e.Graphics, Items[e.Index].ToString(), Font,
                 new Rectangle(e.Bounds.X + 6, e.Bounds.Y, e.Bounds.Width - 6, e.Bounds.Height),
                 Barvy.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+        }
+    }
+
+    /// <summary>Vyber dnu v tydnu - rada prepinatelnych tlacitek misto
+    /// systemoveho CheckedListBoxu, ktery se na tmavem pozadi kresli bile.</summary>
+    public class VyberDnu : Control
+    {
+        static readonly string[] Zkratky  = { "Po", "Út", "St", "Čt", "Pá", "So", "Ne" };
+        static readonly string[] Anglicky = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
+
+        readonly bool[] vybrano = new bool[7];
+        int hover = -1;
+
+        public event EventHandler ZmenaHodnoty;
+
+        public VyberDnu()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Size = new Size(280, 34);
+            Font = Pisma.Bezny;
+            ForeColor = Barvy.Text;
+            Cursor = Cursors.Hand;
+        }
+
+        /// <summary>Dny anglicky, oddelene carkou - tak, jak je bere Planovac uloh.</summary>
+        public string Dny
+        {
+            get
+            {
+                var l = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < 7; i++) if (vybrano[i]) l.Add(Anglicky[i]);
+                return string.Join(",", l.ToArray());
+            }
+            set
+            {
+                for (int i = 0; i < 7; i++) vybrano[i] = false;
+                if (!string.IsNullOrEmpty(value))
+                    foreach (string d in value.Split(','))
+                    {
+                        string t = d.Trim();
+                        for (int i = 0; i < 7; i++)
+                            if (string.Equals(t, Anglicky[i], StringComparison.OrdinalIgnoreCase)) vybrano[i] = true;
+                    }
+                Invalidate();
+            }
+        }
+
+        int PodMysi(Point p)
+        {
+            int w = Width / 7;
+            if (w <= 0 || p.X < 0 || p.X >= w * 7) return -1;
+            return p.X / w;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int h = PodMysi(e.Location);
+            if (h != hover) { hover = h; Invalidate(); }
+            base.OnMouseMove(e);
+        }
+        protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            int i = PodMysi(e.Location);
+            if (i >= 0)
+            {
+                vybrano[i] = !vybrano[i];
+                Invalidate();
+                if (ZmenaHodnoty != null) ZmenaHodnoty(this, EventArgs.Empty);
+            }
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            int w = Width / 7;
+            for (int i = 0; i < 7; i++)
+            {
+                var r = new Rectangle(i * w + 2, 0, w - 4, Height);
+                Color pozadi, text;
+                if (vybrano[i]) { pozadi = hover == i ? Barvy.Akcent : Barvy.AkcentTmavy; text = Color.White; }
+                else { pozadi = hover == i ? Color.FromArgb(44, 47, 54) : Color.FromArgb(28, 30, 34); text = Barvy.TextSlaby; }
+                Kresleni.Vypln(g, r, 6, pozadi);
+                if (!vybrano[i]) Kresleni.Obrys(g, r, 6, Barvy.Okraj);
+                TextRenderer.DrawText(g, Zkratky[i], Font, r, text,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+        }
+    }
+
+    /// <summary>Pruh se zivym stavem nad obsahem okna.</summary>
+    public class StavovyPruh : Control
+    {
+        public string Rezim = "—";
+        public string Detail = "";
+        public string Dalsi = "";
+        public string Televize = "";
+        public bool Uspora = false;
+        public bool Neulozeno = false;
+
+        public StavovyPruh()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Height = 84;
+            BackColor = Barvy.Pozadi;
+            ForeColor = Barvy.Text;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var r = new Rectangle(0, 0, Width, Height);
+            Kresleni.Vypln(g, r, 8, Barvy.Karta);
+            Kresleni.Obrys(g, r, 8, Barvy.Okraj);
+
+            Color tecka = Uspora ? Barvy.Akcent : Barvy.Zelena;
+            using (var b = new SolidBrush(tecka)) g.FillEllipse(b, 20, 22, 12, 12);
+
+            TextRenderer.DrawText(g, Rezim, new Font("Segoe UI Semibold", 14F),
+                new Rectangle(42, 12, Width - 300, 32), Barvy.Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, Detail, Pisma.Maly,
+                new Rectangle(42, 44, Width - 300, 20), Barvy.TextSlaby,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, Dalsi, Pisma.Bezny,
+                new Rectangle(42, 64, Width - 60, 20), Barvy.Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+            if (!string.IsNullOrEmpty(Televize))
+                TextRenderer.DrawText(g, Televize, Pisma.Maly,
+                    new Rectangle(Width - 250, 44, 230, 20), Barvy.TextSlaby,
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+
+            if (Neulozeno)
+            {
+                var znacka = new Rectangle(Width - 190, 14, 170, 26);
+                Kresleni.Vypln(g, znacka, 13, Color.FromArgb(70, 52, 30));
+                Kresleni.Obrys(g, znacka, 13, Barvy.Akcent);
+                TextRenderer.DrawText(g, "● Neuložené změny", Pisma.Maly, znacka, Barvy.Akcent,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
         }
     }
 }
