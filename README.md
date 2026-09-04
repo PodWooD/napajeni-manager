@@ -33,7 +33,7 @@ lokálně i přes vzdálenou plochu, a během vteřiny je zase v plné síle.
 
 ## Instalace
 
-Stáhněte si `NapajeniManager-1.1-setup.exe` ze [sekce Releases](https://github.com/PodWooD/napajeni-manager/releases)
+Stáhněte si `NapajeniManager-1.2-setup.exe` ze [sekce Releases](https://github.com/PodWooD/napajeni-manager/releases)
 a spusťte ho. Instalace **nevyžaduje účet správce** — program se nainstaluje do
 `%LOCALAPPDATA%\Programs\NapajeniManager`.
 
@@ -68,7 +68,7 @@ takže lze použít i vlastní schémata.
 Tlačítko **Změřit a nastavit automaticky** spustí měření. Program postupně omezí procesor
 na 10 až 90 % a u každé úrovně změří skutečný takt a dobu jednoduchého výpočtu. Pak vybere
 nejnižší hodnotu, která ještě splňuje obě podmínky — takt nad 500 MHz a zpomalení do trojnásobku.
-Trvá to zhruba minutu a původní stav se vrátí.
+Trvá to zhruba minutu až dvě a původní stav se vrátí.
 
 Příklad výstupu na Ryzenu 9 9950X3D:
 
@@ -92,9 +92,13 @@ považuje za nečinný.
 
 ### Noční přepnutí
 
-Čas, dny a chování zvlášť pro pracovní týden a pro víkend. `Kolikrát klid` znamená, kolikrát
-po sobě musí být obě vytížení pod prahem, než se opravdu přepne — při zátěži se počitadlo
-vynuluje a čeká se dál.
+Čas, dny a chování zvlášť pro pracovní týden a pro víkend. Doba klidu se zadává v minutách:
+tak dlouho musí být vytížení procesoru i grafiky souvisle pod prahem, než se opravdu přepne.
+Při zátěži se počítání vynuluje a čeká se dál.
+
+Karta **Kdy to vzdát** určuje hodinu, po které se už ten den nepřepne. Podle ní se zároveň
+nastavuje, jak dlouho smí úloha v Plánovači běžet — jinak by ji systém u pozdějších časů
+ukončil dřív, a to bez záznamu v protokolu.
 
 ### Zamknutí počítače
 

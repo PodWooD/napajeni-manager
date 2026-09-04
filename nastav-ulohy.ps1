@@ -32,6 +32,18 @@ function CB($k) { return (C $k '0') -eq '1' }
 
 $uzivatel = "$env:USERDOMAIN\$env:USERNAME"
 
+# Uloha musi mit cas dobehnout az do chvile, kdy skript sam prestane cekat.
+# Pri pevnych 8 hodinach ji Planovac u vecernich casu zabil driv, a to bez zaznamu.
+function LimitHodin($casStartu) {
+    $vzdat = C 'VzdatCas' '07:00'
+    $a = 0; $b = 0; $c = 7; $d = 0
+    if ($casStartu -match '^\s*(\d{1,2})[:.](\d{1,2})') { $a = [int]$Matches[1]; $b = [int]$Matches[2] }
+    if ($vzdat     -match '^\s*(\d{1,2})[:.](\d{1,2})') { $c = [int]$Matches[1]; $d = [int]$Matches[2] }
+    $minut = (($c * 60 + $d) - ($a * 60 + $b) + 1440) % 1440
+    if ($minut -eq 0) { $minut = 1440 }
+    return [math]::Min(23, [math]::Max(1, [math]::Ceiling($minut / 60.0) + 1))
+}
+
 function Smaz($nazev) {
     try { Unregister-ScheduledTask -TaskName $nazev -Confirm:$false -ErrorAction Stop; Zapis "odebrano: $nazev" } catch { }
 }
@@ -70,12 +82,31 @@ if ($Odebrat) {
 
 Zapis "=== NASTAVUJI ULOHY PODLE CONFIGU ==="
 
+# ---------- promitnout nastaveni do schemat hned ----------
+# Drive se strop procesoru zapisoval az pri prvnim nocnim prepnuti, takze
+# po zmereni a ulozeni se v powercfg do noci nic nezmenilo.
+$guidUspora = C 'PlanUspora' 'a1841308-3541-4fab-bc81-f71556f20b4a'
+$guidBezny  = C 'PlanBezny'  '381b4222-f694-41f0-9685-ff5bb260df2e'
+$maxStav    = CI 'MaxStavProcesoru' 50
+
+& powercfg /setacvalueindex $guidUspora SUB_PROCESSOR bc5038f7-23e0-4960-96da-33abaf5935ec $maxStav 2>$null
+& powercfg /setdcvalueindex $guidUspora SUB_PROCESSOR bc5038f7-23e0-4960-96da-33abaf5935ec $maxStav 2>$null
+Zapis "strop procesoru v usporném schematu nastaven na $maxStav %"
+
+if (CB 'ZakazatSpanek') {
+    foreach ($g in @($guidUspora, $guidBezny)) {
+        & powercfg /setacvalueindex $g SUB_SLEEP STANDBYIDLE 0 2>$null
+        & powercfg /setacvalueindex $g SUB_SLEEP HIBERNATEIDLE 0 2>$null
+    }
+    Zapis "uspavani a hibernace zakazany v obou schematech"
+}
+
 # ---------- vsedni dny ----------
 if ((CB 'Tyden_Povoleno') -and (C 'Tyden_Dny' '') -ne '') {
     $dny = (C 'Tyden_Dny' '').Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
     Vytvor "${predpona}Uspora-Tyden" `
         (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dny -At (C 'Tyden_Cas' '00:00')) `
-        '-Akce Uspora -Rezim Nocni' 'Usporny rezim ve vsedni dny' 8
+        '-Akce Uspora -Rezim Nocni' 'Usporny rezim ve vsedni dny' (LimitHodin (C 'Tyden_Cas' '00:00'))
 } else { Smaz "${predpona}Uspora-Tyden" }
 
 # ---------- vikend ----------
@@ -83,7 +114,7 @@ if ((CB 'Vikend_Povoleno') -and (C 'Vikend_Dny' '') -ne '') {
     $dny = (C 'Vikend_Dny' '').Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
     Vytvor "${predpona}Uspora-Vikend" `
         (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $dny -At (C 'Vikend_Cas' '02:00')) `
-        '-Akce Uspora -Rezim Vikend' 'Usporny rezim o vikendu' 8
+        '-Akce Uspora -Rezim Vikend' 'Usporny rezim o vikendu' (LimitHodin (C 'Vikend_Cas' '02:00'))
 } else { Smaz "${predpona}Uspora-Vikend" }
 
 # ---------- po zamknuti ----------

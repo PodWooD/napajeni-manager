@@ -17,13 +17,16 @@ Odpocet=60          # sekund ve varovném okně, než se režim přepne
 PrahCPU=20          # pod kolika % vytížení CPU se počítač považuje za nečinný
 PrahGPU=20          # totéž pro grafiku (vyžaduje nvidia-smi)
 ZakazatSpanek=1     # 1 = zakázat uspávání a hibernaci v obou schématech
+VzdatCas=07:00      # po této hodině se už ten den nepřepne a čekání skončí
 
 # --- Noční přepnutí ve všední dny ---
 Tyden_Povoleno=1
 Tyden_Cas=00:00
 Tyden_Dny=Monday,Tuesday,Wednesday,Thursday,Friday
-Tyden_KolKlidu=3    # kolikrát po sobě musí být klid, než se přepne
-Tyden_IntervalS=300 # jak často se klid kontroluje (sekundy)
+# Aplikace zapisuje dobu klidu jako počet měření krát interval.
+# V okně se zadává rovnou v minutách; interval drží na 180 s.
+Tyden_KolKlidu=5
+Tyden_IntervalS=180
 Tyden_VypnoutTV=1
 Tyden_Zamknout=1
 
@@ -31,8 +34,8 @@ Tyden_Zamknout=1
 Vikend_Povoleno=1
 Vikend_Cas=02:00
 Vikend_Dny=Saturday,Sunday
-Vikend_KolKlidu=3
-Vikend_IntervalS=300
+Vikend_KolKlidu=5
+Vikend_IntervalS=180
 Vikend_VypnoutTV=1
 Vikend_Zamknout=1
 

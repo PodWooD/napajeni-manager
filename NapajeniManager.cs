@@ -59,6 +59,7 @@ namespace NapajeniManager
             d["Zamknuti_Povoleno"] = "0"; d["Zamknuti_KolKlidu"] = "2";
             d["Zamknuti_IntervalS"] = "180"; d["Zamknuti_VypnoutTV"] = "0";
             d["Odemknuti_Povoleno"] = "1";
+            d["VzdatCas"] = "07:00";
             d["TV_Povoleno"] = "0"; d["TV_IP"] = ""; d["TV_Port"] = "3001";
         }
 
@@ -104,6 +105,7 @@ namespace NapajeniManager
         Prepinac pTyden, pTydenTV, pTydenZamk, pVikend, pVikendTV, pVikendZamk;
         Cislovac cTydenHod, cTydenMin, cVikendHod, cVikendMin;
         Cislovac cTydenKlid, cVikendKlid;
+        Cislovac cVzdatHod, cVzdatMin;
         VyberDnu dnyTyden, dnyVikend;
 
         Prepinac pZamknuti, pZamknutiTV, pOdemknuti;
@@ -111,8 +113,12 @@ namespace NapajeniManager
 
         Prepinac pTV;
         Pole poleIP, polePort;
+        Label lblTV;
 
         TextBox txtStav;
+
+        // Vytvaret pismo pri kazdem prekresleni znamena unik prostredku GDI.
+        static readonly Font PismoTitulku = new Font("Segoe UI Semibold", 11F);
 
         Panel panLista, panLevy, panSpodni, panVrch;
         Tlacitko btnZavriDole, btnZavriNahore, btnZvetsit, btnMinimalizovat;
@@ -134,10 +140,14 @@ namespace NapajeniManager
             // Nikdy nezacinat vetsi, nez je pracovni plocha - na notebooku by
             // spodni lista s tlacitky skoncila pod hlavnim panelem.
             var plocha = Screen.FromPoint(Cursor.Position).WorkingArea;
-            ClientSize = new Size(Math.Min(960, plocha.Width - 40), Math.Min(930, plocha.Height - 40));
+            ClientSize = new Size(Math.Min(960, plocha.Width - 40), Math.Min(980, plocha.Height - 40));
             // Stranky maji AutoScroll, takze i pri zmenseni zustane vse dosazitelne.
             MinimumSize = new Size(640, 400);
             MaximizedBounds = plocha;
+            // Rozvrzeni je nakreslene v pixelech pri pismu Segoe UI 9,75 a meritku 100 %,
+            // kde WinForms meri zaklad jako 7 x 17. Bez tohoto radku by se vzal vychozi
+            // zaklad 6 x 13 (Segoe UI 8,25) a okno by se hned pri 100 % roztahlo o sestinu.
+            AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.None;
@@ -322,7 +332,7 @@ namespace NapajeniManager
                 var g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 using (var b = new SolidBrush(Barvy.Akcent)) g.FillEllipse(b, 20, 19, 10, 10);
-                TextRenderer.DrawText(g, "Napájení Manager", new Font("Segoe UI Semibold", 11F),
+                TextRenderer.DrawText(g, "Napájení Manager", PismoTitulku,
                     new Rectangle(40, 0, 400, 48), Barvy.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
                 using (var p = new Pen(Barvy.Okraj)) g.DrawLine(p, 0, 47, lista.Width, 47);
             };
@@ -523,7 +533,7 @@ namespace NapajeniManager
             btnMer.Size = new Size(240, 38); btnMer.Location = new Point(16, 80);
             btnMer.Click += delegate { Zmer(); };
             k2.Controls.Add(btnMer);
-            k2.Controls.Add(Slaby("Program vyzkouší několik úrovní a vybere tu nejúspornější,\nu které počítač ještě zůstane svižný. Trvá asi dvě minuty.", 272, 82, 390, 40));
+            k2.Controls.Add(Slaby("Program vyzkouší několik úrovní a vybere tu nejúspornější,\nu které počítač ještě zůstane svižný. Trvá minutu až dvě.", 272, 82, 390, 40));
 
             lblShrnuti = new Label();
             lblShrnuti.Font = new Font("Segoe UI Semibold", 10.5F);
@@ -615,6 +625,15 @@ namespace NapajeniManager
             k2.Controls.Add(pVikendZamk);
             s.Controls.Add(k2);
 
+            var k3 = NovaKarta("Kdy to vzdát", 4, 590, 676, 128);
+            k3.Controls.Add(Popisek("Nejpozději v", 16, 54, 120));
+            VlozCas(k3, 16, 76, out cVzdatHod, out cVzdatMin);
+            k3.Controls.Add(Slaby("Pokud počítač do této hodiny neutichne, ten den se už nepřepne "
+                + "a čekání skončí. Zároveň podle toho program nastaví, jak dlouho smí úloha "
+                + "v Plánovači běžet — jinak by ji systém u pozdějších časů ukončil dřív, "
+                + "a to bez záznamu.", 240, 56, 420, 0));
+            s.Controls.Add(k3);
+
             return s;
         }
 
@@ -668,12 +687,18 @@ namespace NapajeniManager
             k1.Controls.Add(bHledej);
 
             var bParuj = new Tlacitko(); bParuj.Text = "Spárovat"; bParuj.Size = new Size(140, 34); bParuj.Location = new Point(16, 166);
-            bParuj.Click += delegate { UlozTV(); SpustPS("-Sparovat", "lg-tv.ps1", true); };
+            bParuj.Click += delegate { UlozTV(); AkceTV("-Sparovat", "Párování", 180000); };
             k1.Controls.Add(bParuj);
 
             var bVypni = new Tlacitko(); bVypni.Text = "Vyzkoušet vypnutí"; bVypni.Size = new Size(160, 34); bVypni.Location = new Point(168, 166);
-            bVypni.Click += delegate { UlozTV(); SpustPS("-Vypnout", "lg-tv.ps1", true); };
+            bVypni.Click += delegate { UlozTV(); AkceTV("-Vypnout", "Vypnutí televize", 90000); };
             k1.Controls.Add(bVypni);
+
+            lblTV = new Label();
+            lblTV.Font = Pisma.Bezny; lblTV.ForeColor = Barvy.TextSlaby;
+            lblTV.Location = new Point(16, 212); lblTV.Size = new Size(620, 22);
+            lblTV.Text = "";
+            k1.Controls.Add(lblTV);
 
             k1.Controls.Add(Slaby("Při prvním spárování se televize zeptá — potvrďte dotaz dálkovým ovladačem. Klíč se uloží a příště už se ptát nebude. Vypnutí uvede televizi do pohotovostního režimu, takže zůstane dostupná na síti a lze ji znovu zapnout.", 344, 160, 316, 0));
             s.Controls.Add(k1);
@@ -911,6 +936,9 @@ namespace NapajeniManager
             pVikendZamk.Zapnuto = n.B("Vikend_Zamknout");
             dnyVikend.Dny = n.S("Vikend_Dny");
 
+            var casZ = ParseCas(n.S("VzdatCas"));
+            cVzdatHod.Hodnota = casZ.Hour; cVzdatMin.Hodnota = casZ.Minute;
+
             pZamknuti.Zapnuto = n.B("Zamknuti_Povoleno");
             cZamkKlid.Hodnota = NaMinuty(n.I("Zamknuti_KolKlidu"), n.I("Zamknuti_IntervalS"));
             pZamknutiTV.Zapnuto = n.B("Zamknuti_VypnoutTV");
@@ -972,6 +1000,7 @@ namespace NapajeniManager
             n.Set("Vikend_IntervalS", IntervalS);
             n.Set("Vikend_VypnoutTV", pVikendTV.Zapnuto);
             n.Set("Vikend_Zamknout", pVikendZamk.Zapnuto);
+            n.Set("VzdatCas", string.Format("{0:00}:{1:00}", cVzdatHod.Hodnota, cVzdatMin.Hodnota));
 
             n.Set("Zamknuti_Povoleno", pZamknuti.Zapnuto);
             n.Set("Zamknuti_KolKlidu", NaPocet(cZamkKlid.Hodnota));
@@ -987,8 +1016,17 @@ namespace NapajeniManager
             {
                 n.Uloz();
                 Cursor = Cursors.WaitCursor;
-                SpustPSSync("", "nastav-ulohy.ps1", 90000);
+                int kod = SpustPSSync("", "nastav-ulohy.ps1", 90000);
                 Cursor = Cursors.Default;
+                if (kod != 0)
+                {
+                    MessageBox.Show("Nastavení bylo uloženo, ale úlohy se nepodařilo přenastavit"
+                        + " (skript skončil chybou " + kod + ").\r\n\r\nPodrobnosti najdete"
+                        + " na stránce Stav a záznam.", "Úlohy se nepřenastavily",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    ObnovStav(); ObnovPruh();
+                    return false;
+                }
                 zmeneno = false;
                 MessageBox.Show("Nastavení uloženo a úlohy přenastaveny.", "Hotovo",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -1006,7 +1044,7 @@ namespace NapajeniManager
 
         void Zmer()
         {
-            if (MessageBox.Show("Měření na chvíli přepne režim napájení a zatíží procesor.\r\nTrvá asi minutu. Spustit?",
+            if (MessageBox.Show("Měření na chvíli přepne režim napájení a zatíží procesor.\r\nTrvá minutu až dvě. Spustit?",
                 "Změřit", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
             // Hodnoty z ovladacich prvku si vytahneme tady - na jinem vlakne uz na ne nesmime.
@@ -1018,7 +1056,7 @@ namespace NapajeniManager
             txtMereni.Text = "Měřím, chvíli strpení. Okno zůstane ovladatelné.";
 
             NaPozadi(
-                delegate { return SpustPSVystup("-PlanUspora \"" + guidUspora + "\" -PlanBezny \"" + guidBezny + "\"", "zmer-vykon.ps1", 600000); },
+                delegate { return SpustPSKontrolovane("-PlanUspora \"" + guidUspora + "\" -PlanBezny \"" + guidBezny + "\"", "zmer-vykon.ps1", 600000); },
                 DokonciMereni);
         }
 
@@ -1043,10 +1081,42 @@ namespace NapajeniManager
                 "Změřeno", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
+        /// <summary>Parovani i vypnuti bezi mimo vlakno okna - parovani ceka
+        /// na potvrzeni dalkovym ovladacem az 45 s.</summary>
+        void AkceTV(string argy, string popisAkce, int timeout)
+        {
+            if (lblTV != null) { lblTV.ForeColor = Barvy.TextSlaby; lblTV.Text = popisAkce + " probíhá…"; }
+            NaPozadi(
+                delegate { return SpustPSKontrolovane(argy, "lg-tv.ps1", timeout); },
+                delegate(string v)
+                {
+                    if (lblTV == null) return;
+                    if (v != null && v.StartsWith("CHYBA: "))
+                    {
+                        lblTV.ForeColor = Barvy.Cervena;
+                        lblTV.Text = popisAkce + " selhalo. " + PrvniRadek(v.Substring(7));
+                    }
+                    else
+                    {
+                        lblTV.ForeColor = Barvy.Zelena;
+                        lblTV.Text = popisAkce + ": " + PrvniRadek(v);
+                    }
+                    ObnovPruh();
+                });
+        }
+
+        static string PrvniRadek(string t)
+        {
+            if (string.IsNullOrEmpty(t)) return "(bez odpovědi)";
+            foreach (var r in t.Split('\n'))
+                if (r.Trim().Length > 0) return r.Trim();
+            return "(bez odpovědi)";
+        }
+
         void HledejTV()
         {
             NaPozadi(
-                delegate { return SpustPSVystup("-Hledat", "lg-tv.ps1", 120000).Trim(); },
+                delegate { return SpustPSKontrolovane("-Hledat", "lg-tv.ps1", 120000).Trim(); },
                 delegate(string v)
                 {
                     if (v != null && v.StartsWith("CHYBA: ")) { MessageBox.Show("Hledání selhalo: " + v.Substring(7), "Chyba"); return; }
@@ -1068,7 +1138,7 @@ namespace NapajeniManager
         {
             if (MessageBox.Show("Přepnout teď do úsporného režimu?\r\nZobrazí se okno s odpočtem, které lze zrušit.",
                 "Vyzkoušet", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                SpustPS("-Akce Uspora", "prepni-plan.ps1", false);
+                SpustPS("-Akce Uspora", "prepni-plan.ps1");
         }
 
         ProcessStartInfo PS(string skript, string argy, bool vystup)
@@ -1080,27 +1150,75 @@ namespace NapajeniManager
             return psi;
         }
 
-        void SpustPS(string argy, string skript, bool cekat)
+        /// <summary>Spusti skript a nic necekej - pro akce, ktere si vlastni okno resi samy.</summary>
+        void SpustPS(string argy, string skript)
         {
             if (!File.Exists(Path.Combine(slozka, skript))) { MessageBox.Show("Chybí soubor: " + skript, "Chyba"); return; }
-            var p = Process.Start(PS(skript, argy, false));
-            if (cekat && p != null) { p.WaitForExit(180000); ObnovStav(); }
+            Process.Start(PS(skript, argy, false));
         }
 
-        void SpustPSSync(string argy, string skript, int timeout)
+        /// <summary>Vrati vystup skriptu, ale u nenuloveho navratoveho kodu vyhodi
+        /// vyjimku - aby se selhani nedalo splest s uspechem.</summary>
+        string SpustPSKontrolovane(string argy, string skript, int timeout)
         {
-            if (!File.Exists(Path.Combine(slozka, skript))) throw new FileNotFoundException("Chybí soubor: " + skript);
+            int kod;
+            string v = SpustPSVystup(argy, skript, timeout, out kod);
+            if (kod != 0)
+                throw new Exception("Skript " + skript + " skončil chybou " + kod + "."
+                    + (v.Trim().Length > 0 ? "\r\n\r\n" + v.Trim() : ""));
+            return v;
+        }
+
+        /// <summary>Spusti skript a pocka na nej. Vraci navratovy kod, aby volajici
+        /// nehlasil uspech u neceho, co ve skutecnosti selhalo.</summary>
+        int SpustPSSync(string argy, string skript, int timeout)
+        {
+            string cesta = Path.Combine(slozka, skript);
+            if (!File.Exists(cesta)) throw new FileNotFoundException("Chybí soubor: " + skript);
+
             var p = Process.Start(PS(skript, argy, false));
-            if (p != null) p.WaitForExit(timeout);
+            if (p == null) throw new Exception("Skript " + skript + " se nepodařilo spustit.");
+            if (!p.WaitForExit(timeout))
+            {
+                try { p.Kill(); } catch { }
+                throw new TimeoutException("Skript " + skript + " nedoběhl do " + (timeout / 1000) + " s.");
+            }
+            return p.ExitCode;
         }
 
         string SpustPSVystup(string argy, string skript, int timeout)
         {
-            if (!File.Exists(Path.Combine(slozka, skript))) throw new FileNotFoundException("Chybí soubor: " + skript);
-            var p = Process.Start(PS(skript, argy, true));
-            string o = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(timeout);
-            return o;
+            int kod;
+            return SpustPSVystup(argy, skript, timeout, out kod);
+        }
+
+        /// <summary>Vystup se cte prubezne na pozadi. Kdyby se cetl pres ReadToEnd,
+        /// zablokoval by se az do konce skriptu a zadany casovy limit by nemel ucinek.</summary>
+        string SpustPSVystup(string argy, string skript, int timeout, out int navratovyKod)
+        {
+            string cesta = Path.Combine(slozka, skript);
+            if (!File.Exists(cesta)) throw new FileNotFoundException("Chybí soubor: " + skript);
+
+            var p = new Process();
+            p.StartInfo = PS(skript, argy, true);
+            var sb = new StringBuilder();
+            p.OutputDataReceived += delegate (object o, DataReceivedEventArgs e)
+            {
+                if (e.Data != null) lock (sb) sb.AppendLine(e.Data);
+            };
+
+            p.Start();
+            p.BeginOutputReadLine();
+
+            if (!p.WaitForExit(timeout))
+            {
+                try { p.Kill(); } catch { }
+                throw new TimeoutException("Skript " + skript + " nedoběhl do " + (timeout / 1000) + " s.");
+            }
+            p.WaitForExit();          // dobehnuti obsluhy vystupu
+
+            navratovyKod = p.ExitCode;
+            lock (sb) return sb.ToString();
         }
 
         string Prikaz(string exe, string argy)

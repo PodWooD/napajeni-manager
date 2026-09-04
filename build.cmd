@@ -17,7 +17,7 @@ if not exist "%CSC%" (
     /reference:System.dll ^
     /reference:System.Drawing.dll ^
     /reference:System.Windows.Forms.dll ^
-    NapajeniManager.cs Ui.cs
+    NapajeniManager.cs Ui.cs AssemblyInfo.cs
 
 if errorlevel 1 (
     echo Sestaveni selhalo.

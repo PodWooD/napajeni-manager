@@ -2,7 +2,7 @@
 ; Sestavení:  ISCC.exe installer.iss   (výsledek najdete ve složce build\)
 
 #define NazevApp   "Napájení Manager"
-#define VerzeApp   "1.1"
+#define VerzeApp   "1.2"
 #define AutorApp   "PodWooD"
 #define WebApp     "https://github.com/PodWooD/napajeni-manager"
 #define ExeApp     "NapajeniManager.exe"
@@ -32,14 +32,14 @@ OutputBaseFilename=NapajeniManager-{#VerzeApp}-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-MinVersion=10.0
+MinVersion=6.1
 
 UninstallDisplayName={#NazevApp}
 UninstallDisplayIcon={app}\{#ExeApp}
 CloseApplications=yes
 RestartApplications=no
 
-VersionInfoVersion=1.1.0.0
+VersionInfoVersion=1.2.0.0
 VersionInfoCompany={#AutorApp}
 VersionInfoDescription=Instalátor programu {#NazevApp}
 VersionInfoCopyright=Copyright (c) 2026 {#AutorApp}

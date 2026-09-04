@@ -55,6 +55,10 @@ switch ($Rezim) {
                   $cekat = $false; $tiche = $false; $jenZamceno = $false }
 }
 
+# Do kolika se nejpozdeji ceka na klid. Drive bylo natvrdo 7:00, coz se pri
+# vecernim casu preplo pres osmihodinovy limit ulohy a Planovac ji zabil bez zaznamu.
+$vzdatCas = C 'VzdatCas' '07:00'
+
 $prahCPU = CI 'PrahCPU' 20
 $prahGPU = CI 'PrahGPU' 20
 $odpocet = CI 'Odpocet' 60
@@ -138,7 +142,10 @@ if ($jenZamceno -and -not (JeZamceno)) {
 # ---------- cekani na klid ----------
 if ($cekat -and $kolKlidu -gt 0) {
     $ted = Get-Date
-    $deadline = if ($ted.Hour -lt 7) { $ted.Date.AddHours(7) } else { $ted.Date.AddDays(1).AddHours(7) }
+    $h = 7; $m = 0
+    if ($vzdatCas -match '^\s*(\d{1,2})[:.](\d{1,2})\s*$') { $h = [int]$Matches[1]; $m = [int]$Matches[2] }
+    $dnes = $ted.Date.AddHours($h).AddMinutes($m)
+    $deadline = if ($ted -lt $dnes) { $dnes } else { $dnes.AddDays(1) }
     Zapis "CEKANI NA KLID ($Rezim): CPU<$prahCPU% a GPU<$prahGPU%, ${kolKlidu}x po $interval s, nejpozdeji do $($deadline.ToString('HH:mm'))"
 
     $klid = 0

@@ -62,7 +62,7 @@ if ($Hledat) {
         $otevreny = $false
         $t = New-Object System.Net.Sockets.TcpClient
         try {
-            $a = $t.BeginConnect($ip, 3001, $null, $null)
+            $a = $t.BeginConnect($ip, $Port, $null, $null)
             $otevreny = ($a.AsyncWaitHandle.WaitOne(400, $false) -and $t.Connected)
         } catch { } finally { $t.Close() }
         if ($otevreny -and ($jmeno -match 'LG|webOS' -or $jmeno -eq '')) {
@@ -125,17 +125,46 @@ function Odesli($obj) {
     $ws.SendAsync($seg, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).Wait()
 }
 
+# Televize spojeni bezne zavira sama - typicky hned po prikazu k vypnuti.
+# Cteni ze zavreneho socketu vyhazuje vyjimku, ktera se pak hlasila jako chyba,
+# i kdyz prikaz prosel. Vracime proto prazdny retezec a duvod zapiseme do logu.
 function Prijmi([int]$timeoutMs = 45000) {
+    if ($ws.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+        Zapis "  spojeni neni otevrene (stav: $($ws.State)), necti"
+        return ''
+    }
     $buf = New-Object byte[] 16384
     $seg = New-Object System.ArraySegment[byte] -ArgumentList @(,$buf)
     $t   = New-Object System.Threading.CancellationTokenSource
     $t.CancelAfter($timeoutMs)
     $sb  = New-Object System.Text.StringBuilder
-    do {
-        $r = $ws.ReceiveAsync($seg, $t.Token).GetAwaiter().GetResult()
-        [void]$sb.Append([System.Text.Encoding]::UTF8.GetString($buf, 0, $r.Count))
-    } while (-not $r.EndOfMessage)
+    try {
+        do {
+            $r = $ws.ReceiveAsync($seg, $t.Token).GetAwaiter().GetResult()
+            if ($r.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
+                Zapis "  televize spojeni zavrela"
+                return $sb.ToString()
+            }
+            [void]$sb.Append([System.Text.Encoding]::UTF8.GetString($buf, 0, $r.Count))
+        } while (-not $r.EndOfMessage)
+    }
+    catch {
+        Zapis "  cteni skoncilo: $($_.Exception.InnerException.Message)"
+        return $sb.ToString()
+    }
     return $sb.ToString()
+}
+
+# Slusne rozlouceni. Kdyz uz je po spojeni, jen uvolnit.
+function Uzavri {
+    try {
+        if ($ws -and $ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+            $c = New-Object System.Threading.CancellationTokenSource
+            $c.CancelAfter(2000)
+            [void]$ws.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, '', $c.Token).Wait(2500)
+        }
+    } catch { }
+    finally { if ($ws) { $ws.Dispose() } }
 }
 
 $schema = if ($Port -eq 3001) { 'wss' } else { 'ws' }
@@ -175,19 +204,26 @@ for ($i = 0; $i -lt 3; $i++) {
         }
         $ok = $true; break
     }
-    if ($r -match '"type"\s*:\s*"error"') { Zapis "CHYBA registrace: $r"; Write-Output "Registrace odmitnuta."; $ws.Dispose(); exit 1 }
+    if ($r -match '"type"\s*:\s*"error"') { Zapis "CHYBA registrace: $r"; Write-Output "Registrace odmitnuta."; Uzavri; exit 1 }
 }
 
-if (-not $ok) { Zapis "registrace nedokoncena"; Write-Output "Nepotvrzeno na televizi."; $ws.Dispose(); exit 1 }
+if (-not $ok) { Zapis "registrace nedokoncena"; Write-Output "Nepotvrzeno na televizi."; Uzavri; exit 1 }
 Zapis "registrace OK"
 
-if ($Sparovat) { Write-Output "Sparovano, klic ulozen."; $ws.Dispose(); exit }
+if ($Sparovat) { Write-Output "Sparovano, klic ulozen."; Uzavri; exit }
 
 if ($Vypnout) {
-    Odesli @{ type = 'request'; id = 'off_1'; uri = 'ssap://system/turnOff' }
-    Start-Sleep -Milliseconds 800
-    Zapis "odeslan prikaz k vypnuti ($IP)"
-    Write-Output "Prikaz k vypnuti odeslan."
+    try {
+        Odesli @{ type = 'request'; id = 'off_1'; uri = 'ssap://system/turnOff' }
+        Start-Sleep -Milliseconds 800
+        Zapis "odeslan prikaz k vypnuti ($IP)"
+        Write-Output "Televize uvedena do pohotovostniho rezimu."
+    }
+    catch {
+        Zapis "CHYBA pri vypinani: $($_.Exception.Message)"
+        Write-Output "Prikaz k vypnuti se nepodarilo odeslat."
+        Uzavri; exit 1
+    }
 }
 
-$ws.Dispose()
+Uzavri

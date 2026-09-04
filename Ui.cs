@@ -28,7 +28,9 @@ namespace NapajeniManager
         public static readonly Font Sekce   = new Font("Segoe UI Semibold", 10.5F);
         public static readonly Font Bezny   = new Font("Segoe UI", 9.75F);
         public static readonly Font Maly    = new Font("Segoe UI", 8.75F);
-        public static readonly Font Velky   = new Font("Segoe UI Semibold", 20F);
+        /// <summary>Pro zvyraznene polozky. Drzime ho tady, aby se nevytvarelo
+        /// pri kazdem prekresleni - to unikaly prostredky GDI.</summary>
+        public static readonly Font Zvyraznene = new Font("Segoe UI Semibold", 9.75F);
         public static readonly Font Mono    = NejlepsiMono(9F);
 
         /// <summary>Prvni dostupne neproporcionalni pismo. Bez teto kontroly by
@@ -108,7 +110,7 @@ namespace NapajeniManager
             if (!string.IsNullOrEmpty(Nadpis))
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.DrawString(Nadpis, Pisma.Sekce, new SolidBrush(Barvy.Text), 16, 12);
+                using (var b = new SolidBrush(Barvy.Text)) g.DrawString(Nadpis, Pisma.Sekce, b, 16, 12);
                 using (var pen = new Pen(Barvy.Okraj))
                     g.DrawLine(pen, 16, 38, Width - 16, 38);
             }
@@ -167,59 +169,6 @@ namespace NapajeniManager
     }
 
     /// <summary>Posuvnik s vlastnim vykreslenim.</summary>
-    public class Posuvnik : Control
-    {
-        int hodnota = 50, min = 5, max = 100;
-        bool tahne = false;
-        public event EventHandler ZmenaHodnoty;
-
-        public int Hodnota
-        {
-            get { return hodnota; }
-            set
-            {
-                int v = Math.Max(min, Math.Min(max, value));
-                if (hodnota != v) { hodnota = v; Invalidate(); if (ZmenaHodnoty != null) ZmenaHodnoty(this, EventArgs.Empty); }
-            }
-        }
-        public int Minimum { get { return min; } set { min = value; Invalidate(); } }
-        public int Maximum { get { return max; } set { max = value; Invalidate(); } }
-
-        public Posuvnik()
-        {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            Height = 32;
-            Cursor = Cursors.Hand;
-        }
-
-        int PozZHodnoty() { return (int)((hodnota - min) / (float)(max - min) * (Width - 18)) + 9; }
-        void HodnotaZPozice(int x)
-        {
-            float f = (x - 9) / (float)(Width - 18);
-            Hodnota = (int)Math.Round(min + f * (max - min));
-        }
-
-        protected override void OnMouseDown(MouseEventArgs e) { tahne = true; HodnotaZPozice(e.X); base.OnMouseDown(e); }
-        protected override void OnMouseMove(MouseEventArgs e) { if (tahne) HodnotaZPozice(e.X); base.OnMouseMove(e); }
-        protected override void OnMouseUp(MouseEventArgs e) { tahne = false; base.OnMouseUp(e); }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(BackColor);
-
-            int y = Height / 2;
-            using (var pen = new Pen(Color.FromArgb(62, 65, 72), 5)) { pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round; g.DrawLine(pen, 9, y, Width - 9, y); }
-            int px = PozZHodnoty();
-            using (var pen = new Pen(Barvy.Akcent, 5)) { pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round; if (px > 10) g.DrawLine(pen, 9, y, px, y); }
-
-            using (var b = new SolidBrush(Color.White)) g.FillEllipse(b, px - 8, y - 8, 16, 16);
-            using (var b = new SolidBrush(Barvy.Akcent)) g.FillEllipse(b, px - 4, y - 4, 8, 8);
-        }
-    }
-
-    /// <summary>Ploche tlacitko.</summary>
     public class Tlacitko : Control
     {
         bool hover = false, stisk = false;
@@ -241,7 +190,7 @@ namespace NapajeniManager
             Hlavni = true;
             BarvaPozadi = Barvy.Zelena;
             BarvaHover = Barvy.ZelenaHover;
-            Font = new Font("Segoe UI Semibold", 9.75F);
+            Font = Pisma.Zvyraznene;
         }
 
         protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -300,7 +249,7 @@ namespace NapajeniManager
 
             Color ct = aktivni ? Barvy.Text : (hover ? Barvy.Text : Barvy.TextSlaby);
             var rt = new Rectangle(24, 0, Width - 32, Height);
-            TextRenderer.DrawText(g, Text, aktivni ? new Font("Segoe UI Semibold", 9.75F) : Font, rt, ct,
+            TextRenderer.DrawText(g, Text, aktivni ? Pisma.Zvyraznene : Font, rt, ct,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
     }
