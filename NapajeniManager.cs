@@ -128,7 +128,7 @@ namespace NapajeniManager
             n = new Nastaveni(Path.Combine(slozka, "config.ini"));
 
             Text = "Napájení Manager";
-            ClientSize = new Size(960, 910);
+            ClientSize = new Size(960, 930);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.None;
             BackColor = Barvy.Pozadi;
@@ -176,6 +176,9 @@ namespace NapajeniManager
             // okenniho handlu. To neni zmena od uzivatele.
             zmeneno = false;
             ObnovPruh();
+
+            TmavyPosuvnik(txtStav);
+            TmavyPosuvnik(txtMereni);
         }
 
         // ---------------- neulozene zmeny ----------------
@@ -303,7 +306,7 @@ namespace NapajeniManager
         void ObsahovaCast()
         {
             var vrch = new Panel();
-            vrch.Dock = DockStyle.Top; vrch.Height = 96; vrch.BackColor = Barvy.Pozadi;
+            vrch.Dock = DockStyle.Top; vrch.Height = 116; vrch.BackColor = Barvy.Pozadi;
             vrch.Padding = new Padding(24, 8, 24, 8);
             pruh = new StavovyPruh(); pruh.Dock = DockStyle.Fill;
             vrch.Controls.Add(pruh);
@@ -347,11 +350,15 @@ namespace NapajeniManager
             return l;
         }
 
+        /// <summary>Vysvetlujici text. Vysku si dopocita podle sirky a obsahu -
+        /// pevne zadana vyska drive text tise orezavala.</summary>
         Label Slaby(string t, int x, int y, int w, int h)
         {
             var l = new Label();
             l.Text = t; l.Font = Pisma.Maly; l.ForeColor = Barvy.TextSlaby;
-            l.Location = new Point(x, y); l.Size = new Size(w, h);
+            l.Location = new Point(x, y);
+            l.MaximumSize = new Size(w, 0);
+            l.AutoSize = true;
             return l;
         }
 
@@ -400,7 +407,7 @@ namespace NapajeniManager
             var s = NovaStranka();
             s.Controls.Add(Nadpis("Režimy napájení", 4, 4));
 
-            var k1 = NovaKarta("Schémata", 4, 46, 676, 132);
+            var k1 = NovaKarta("Schémata", 4, 46, 676, 140);
             k1.Controls.Add(Popisek("Běžný režim (plný výkon)", 16, 54, 200));
             cmbBezny = new Vyber(); cmbBezny.Location = new Point(230, 51); cmbBezny.Size = new Size(250, 26);
             k1.Controls.Add(cmbBezny);
@@ -410,10 +417,10 @@ namespace NapajeniManager
             var bObnov = new Tlacitko(); bObnov.Text = "Načíst znovu"; bObnov.Size = new Size(120, 30); bObnov.Location = new Point(498, 51);
             bObnov.Click += delegate { NactiPlany(); NaplnVyber(cmbBezny, GuidZVyberu(cmbBezny)); NaplnVyber(cmbUspora, GuidZVyberu(cmbUspora)); };
             k1.Controls.Add(bObnov);
-            k1.Controls.Add(Slaby("Nabídka odpovídá schématům na tomto počítači, včetně vlastních.", 498, 90, 128, 34));
+            k1.Controls.Add(Slaby("Nabídka odpovídá schématům na tomto počítači, včetně vlastních.", 498, 86, 162, 45));
             s.Controls.Add(k1);
 
-            var k2 = NovaKarta("Úsporný režim", 4, 190, 676, 286);
+            var k2 = NovaKarta("Úsporný režim", 4, 198, 676, 286);
             k2.Controls.Add(Popisek("Jak moc počítač zpomalit, když ho zrovna nepoužíváte?", 16, 52, 500));
 
             btnMer = new Tlacitko(); btnMer.Text = "Změřit a nastavit automaticky";
@@ -439,7 +446,7 @@ namespace NapajeniManager
             k2.Controls.Add(txtMereni);
             s.Controls.Add(k2);
 
-            var k3 = NovaKarta("Prahy a chování", 4, 488, 676, 176);
+            var k3 = NovaKarta("Prahy a chování", 4, 496, 676, 176);
             k3.Controls.Add(Popisek("Odpočet ve varovném okně", 16, 56, 200));
             cOdpocet = new Cislovac(); cOdpocet.Location = new Point(230, 51); cOdpocet.Minimum = 5; cOdpocet.Maximum = 600; cOdpocet.Krok = 5;
             k3.Controls.Add(cOdpocet);
@@ -549,7 +556,7 @@ namespace NapajeniManager
             s.Controls.Add(Nadpis("Televize", 4, 4));
             s.Controls.Add(Slaby("Podporovány jsou televize LG s webOS.", 4, 34, 636, 20));
 
-            var k1 = NovaKarta("Připojení", 4, 62, 676, 230);
+            var k1 = NovaKarta("Připojení", 4, 62, 676, 250);
             pTV = new Prepinac(); pTV.Text = "Ovládat televizi"; pTV.Location = new Point(16, 52); pTV.Size = new Size(240, 26);
             k1.Controls.Add(pTV);
 
@@ -573,7 +580,7 @@ namespace NapajeniManager
             bVypni.Click += delegate { UlozTV(); SpustPS("-Vypnout", "lg-tv.ps1", true); };
             k1.Controls.Add(bVypni);
 
-            k1.Controls.Add(Slaby("Při prvním spárování se televize zeptá — potvrďte dotaz dálkovým ovladačem.\nKlíč se uloží a příště už se ptát nebude. Vypnutí uvede televizi do pohotovostního\nrežimu, takže zůstane dostupná na síti a lze ji znovu zapnout.", 344, 166, 280, 56));
+            k1.Controls.Add(Slaby("Při prvním spárování se televize zeptá — potvrďte dotaz dálkovým ovladačem. Klíč se uloží a příště už se ptát nebude. Vypnutí uvede televizi do pohotovostního režimu, takže zůstane dostupná na síti a lze ji znovu zapnout.", 344, 160, 316, 0));
             s.Controls.Add(k1);
 
             return s;
@@ -639,6 +646,17 @@ namespace NapajeniManager
         }
 
         // ---------------- zivy stav ----------------
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        static extern int SetWindowTheme(IntPtr okno, string aplikace, string seznam);
+
+        /// <summary>Posuvniky v TextBoxu kresli Windows, ne my - ve svetlem provedeni.
+        /// Motiv DarkMode_Explorer je prepne do tmave varianty (Windows 10 1809 a novejsi).</summary>
+        static void TmavyPosuvnik(Control c)
+        {
+            if (c == null || !c.IsHandleCreated) return;
+            try { SetWindowTheme(c.Handle, "DarkMode_Explorer", null); } catch { }
+        }
+
         [DllImport("powrprof.dll")] static extern uint PowerGetActiveScheme(IntPtr koren, out IntPtr guid);
         [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr h);
 

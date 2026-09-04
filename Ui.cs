@@ -435,6 +435,31 @@ namespace NapajeniManager
             ItemHeight = 24;
         }
 
+        /// <summary>ComboBox si i s FlatStyle.Flat kresli svetly systemovy ramecek
+        /// a tlacitko sipky. Prekreslime je az po tom, co se vykresli sam.</summary>
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            const int WM_PAINT = 0x000F;
+            if (m.Msg != WM_PAINT || IsDisposed || !IsHandleCreated) return;
+
+            using (var g = Graphics.FromHwnd(Handle))
+            {
+                var sipkaPole = new Rectangle(Width - 20, 1, 19, Height - 2);
+                using (var b = new SolidBrush(BackColor)) g.FillRectangle(b, sipkaPole);
+
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                int sx = Width - 12, sy = Height / 2 - 1;
+                using (var b = new SolidBrush(Barvy.TextSlaby))
+                    g.FillPolygon(b, new[] {
+                        new Point(sx - 4, sy - 1), new Point(sx + 4, sy - 1), new Point(sx, sy + 4) });
+
+                g.SmoothingMode = SmoothingMode.None;
+                using (var pen = new Pen(Barvy.Okraj))
+                    g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            }
+        }
+
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
             if (e.Index < 0) return;
@@ -538,8 +563,16 @@ namespace NapajeniManager
     }
 
     /// <summary>Pruh se zivym stavem nad obsahem okna.</summary>
+    ///
+    /// Svisle rozvrzeni (vyska 100):
+    ///     16..44   nazev rezimu   (Segoe UI Semibold 14 -> ~25 px radek)
+    ///     46..64   detail         (Segoe UI 8,75 -> ~15 px)
+    ///     68..88   dalsi akce     (Segoe UI 9,75 -> ~17 px)
+    ///     88..100  spodni odsazeni, aby dotahy pismen nekoncily na okraji
     public class StavovyPruh : Control
     {
+        const int Vyska = 100;
+
         public string Rezim = "—";
         public string Detail = "";
         public string Dalsi = "";
@@ -547,10 +580,12 @@ namespace NapajeniManager
         public bool Uspora = false;
         public bool Neulozeno = false;
 
+        static readonly Font PismoRezim = new Font("Segoe UI Semibold", 14F);
+
         public StavovyPruh()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            Height = 84;
+            Height = Vyska;
             BackColor = Barvy.Pozadi;
             ForeColor = Barvy.Text;
         }
@@ -564,29 +599,35 @@ namespace NapajeniManager
             Kresleni.Vypln(g, r, 8, Barvy.Karta);
             Kresleni.Obrys(g, r, 8, Barvy.Okraj);
 
-            Color tecka = Uspora ? Barvy.Akcent : Barvy.Zelena;
-            using (var b = new SolidBrush(tecka)) g.FillEllipse(b, 20, 22, 12, 12);
+            using (var b = new SolidBrush(Uspora ? Barvy.Akcent : Barvy.Zelena))
+                g.FillEllipse(b, 20, 24, 12, 12);
 
-            TextRenderer.DrawText(g, Rezim, new Font("Segoe UI Semibold", 14F),
-                new Rectangle(42, 12, Width - 300, 32), Barvy.Text,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            // Prvni radek konci u znacky neulozenych zmen, druhy u stavu televize.
+            int sirkaPrvni  = Math.Max(120, Width - 220);
+            int sirkaDruhy  = Math.Max(120, Width - 290);
+
+            TextRenderer.DrawText(g, Rezim, PismoRezim,
+                new Rectangle(44, 16, sirkaPrvni, 28), Barvy.Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
             TextRenderer.DrawText(g, Detail, Pisma.Maly,
-                new Rectangle(42, 44, Width - 300, 20), Barvy.TextSlaby,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                new Rectangle(44, 46, sirkaDruhy, 18), Barvy.TextSlaby,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
             TextRenderer.DrawText(g, Dalsi, Pisma.Bezny,
-                new Rectangle(42, 64, Width - 60, 20), Barvy.Text,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                new Rectangle(44, 68, Width - 64, 20), Barvy.Text,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
             if (!string.IsNullOrEmpty(Televize))
                 TextRenderer.DrawText(g, Televize, Pisma.Maly,
-                    new Rectangle(Width - 250, 44, 230, 20), Barvy.TextSlaby,
-                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+                    new Rectangle(Width - 270, 46, 250, 18), Barvy.TextSlaby,
+                    TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
             if (Neulozeno)
             {
-                var znacka = new Rectangle(Width - 190, 14, 170, 26);
-                Kresleni.Vypln(g, znacka, 13, Color.FromArgb(70, 52, 30));
-                Kresleni.Obrys(g, znacka, 13, Barvy.Akcent);
+                var znacka = new Rectangle(Width - 190, 16, 170, 28);
+                Kresleni.Vypln(g, znacka, 14, Color.FromArgb(70, 52, 30));
+                Kresleni.Obrys(g, znacka, 14, Barvy.Akcent);
                 TextRenderer.DrawText(g, "● Neuložené změny", Pisma.Maly, znacka, Barvy.Akcent,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
